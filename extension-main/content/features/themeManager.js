@@ -138,25 +138,12 @@ function applyTheme(themeId) {
 }
 
 /**
- * Read the saved theme from settings/storage and apply it.
- * Falls back gracefully when the extension context is gone.
+ * Read the saved theme straight from chrome.storage.sync and apply it.
+ * Storage is the single source of truth (the popup writes there), so this is
+ * robust regardless of content-script load timing or whether settings.js has
+ * finished loading. Falls back gracefully when the extension context is gone.
  */
 async function initThemeManager() {
-  // Prefer the already-loaded settings object when available (content.js
-  // loads settings.js first), otherwise read storage directly.
-  try {
-    if (
-      typeof currentSettings === "object" &&
-      currentSettings &&
-      currentSettings.theme
-    ) {
-      applyTheme(currentSettings.theme);
-      return;
-    }
-  } catch (_) {
-    /* currentSettings not in scope yet — fall through to storage */
-  }
-
   try {
     if (
       typeof chrome === "undefined" ||
@@ -174,9 +161,38 @@ async function initThemeManager() {
   }
 }
 
+/**
+ * React to settings changes written by the popup. This makes the theme apply
+ * the instant it is saved — independent of the tab-messaging path — so it works
+ * even if a message is missed or the content script loaded after page load.
+ */
+function watchThemeChanges() {
+  try {
+    if (typeof chrome === "undefined" || !chrome.storage?.onChanged) return;
+    if (watchThemeChanges._wired) return;
+    watchThemeChanges._wired = true;
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "sync" || !changes.cleanerSettings) return;
+      const next = changes.cleanerSettings.newValue || {};
+      applyTheme(next.theme || "off");
+    });
+  } catch (_) {
+    /* no-op */
+  }
+}
+
 // Expose for the test harness / other modules (no-op in the browser global).
 if (typeof window !== "undefined") {
   window.SCALER_THEMES = SCALER_THEMES;
   window.applyTheme = applyTheme;
   window.initThemeManager = initThemeManager;
+  window.watchThemeChanges = watchThemeChanges;
+
+  // Apply ASAP. Content scripts run at document_idle, so content.js's
+  // load / DOMContentLoaded handlers may fire AFTER this point (or already
+  // have). Don't depend on them: documentElement exists now, so theme now.
+  if (document.documentElement) {
+    initThemeManager();
+    watchThemeChanges();
+  }
 }
