@@ -69,6 +69,10 @@ Always shows a clickable "View Leaderboard" link on contest pages, even during a
 
 Press **`Alt + /`** (Option + / on Mac) or click the **Search** button in the Scaler header to open a floating Apple-style search bar. Instantly find and jump to **Classes**, **Problems**, or **Events** from anywhere on Scaler.
 
+## 🎨 Dark Mode & Elegant Themes
+
+Recolor the **entire Scaler website** with a single click. Open the popup → **Appearance** → pick a theme: **Dark**, **Midnight**, **Dracula**, **Nord**, **Warm Sepia**, or **Solarized** (or **Light / Off** for the native look). Themes apply instantly, sync across your devices, and keep images, videos and the sticky header working correctly.
+
 ## 🧹 CLEANER DASHBOARD
 
 ### 🌍 Global Elements (All Pages)
@@ -139,6 +143,7 @@ extension-main/
     │   │   └── liveStreamRecorder.css ← Custom player styles
     │   ├── lectureInfo.js / instructorInfo.js ← Session/dashboard metadata & instructor tab
     │   ├── lectureSummary.js ← AI lecture summary tab (topics/notes/deadlines/announcements)
+    │   ├── themeManager.js   ← Site-wide Dark Mode & theme engine (root-filter recipes)
     │   ├── problemSearch, practiceMode, leetcodeLink, spotlightSearch,
     │   │   joinClassButton, companionBypass, subjectSort, contestLeaderboard
     └── utils/               ← domUtils, stringUtils

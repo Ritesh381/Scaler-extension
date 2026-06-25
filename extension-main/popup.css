@@ -347,6 +347,43 @@ body {
   opacity: 0.5;
 }
 
+/* Theme Selector */
+.theme-row {
+  align-items: center;
+}
+
+.theme-select {
+  flex-shrink: 0;
+  min-width: 130px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.theme-select:hover {
+  border-color: var(--primary);
+}
+
+.theme-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.theme-select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 /* Toggle Switch */
 .toggle-switch {
   position: relative;

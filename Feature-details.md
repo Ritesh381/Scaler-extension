@@ -2,6 +2,11 @@
 
 This document provides a technical overview of how each major feature is implemented within the Scaler++ extension. Features that solely rely on CSS/DOM element hiding are excluded.
 
+## 🎨 Dark Mode & Elegant Themes
+
+**Description:** A site-wide theme switcher that recolors the whole Scaler site — Dark, Midnight, Dracula, Nord, Warm Sepia and Solarized, plus an Off/Light option for the native look. Selected from an "Appearance" dropdown in the popup; applies instantly and syncs across devices.
+**Implementation:** Rather than re-skinning Scaler's large, frequently-changing SPA selector-by-selector (which breaks on every dashboard tweak), the engine recolors the page with a single CSS `filter` recipe applied to the **root `<html>` element**, and counter-inverts real media (`img`, `video`, `canvas`, `iframe`, `svg image`, and CSS `background-image` elements) with `invert(1) hue-rotate(180deg)` so photos/videos keep their natural colors. Filtering the *root* element is deliberate: per the CSS spec a filter on the root applies to the viewport and does **not** establish a containing block for `position: fixed` descendants, so Scaler's sticky header, modals and the extension's own overlays keep working. Each theme is just a different filter recipe (e.g. `invert(1) hue-rotate(180deg)` for Dark, `invert(0.9) hue-rotate(200deg) saturate(1.15)` for Dracula), giving distinct moods from one robust engine with zero per-page maintenance. The selected theme id is persisted in `chrome.storage.sync` under `cleanerSettings.theme` and pushed to the active tab via the existing `toggleSetting` message channel for instant apply; `themeManager.js` toggles a `scaler-theme-active` class on `<html>` and swaps the contents of a single `<style id="scaler-theme-styles">` node. The theme lives on the persistent root element, so it survives SPA navigation without re-injection.
+
 ## 🧠 AI Lecture Notes
 
 **Description:** Generates structured, readable notes from a lecture's transcript — a story-style "Lecture Brief" (concept by concept), plus Topics Taught, Key Takeaways, and the headline value: the **Deadlines** and **Announcements** the instructor mentioned during class. Shown in a dedicated "Notes" tab on the session page.

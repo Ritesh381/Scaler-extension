@@ -60,6 +60,7 @@ test("every documented feature entrypoint is wired up", () => {
     "initInstructorInfo",
     "initLectureSummary",
     "initSpotlightSearch",
+    "initThemeManager",
   ];
   for (const name of expected) {
     assert.equal(
