@@ -88,7 +88,8 @@
       "resources": [
         "icons/leetcode_icon.png",
         "libs/agora-sdk.js",
-        "content/features/liveStreamRecorder/recorderBridge.js"
+        "content/features/liveStreamRecorder/recorderBridge.js",
+        "fonts/figtree.woff2"
       ],
       "matches": [
         "https://www.scaler.com/*",

@@ -62,6 +62,35 @@ test("switching themes replaces the recipe rather than stacking it", () => {
   assert.match(style.textContent, /hue-rotate\(200deg\)/, "dracula recipe applied");
 });
 
+test("midnight ports the Figtree font and rounded corners", () => {
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("midnight");
+
+  const root = window.document.documentElement;
+  assert.ok(root.classList.contains(ROOT_CLASS), "root themed");
+  assert.ok(root.classList.contains("scaler-theme-midnight"), "id class added");
+
+  const css = window.document.getElementById(STYLE_ID).textContent;
+  assert.match(css, /@font-face/, "@font-face injected");
+  assert.match(css, /Figtree/, "Figtree font referenced");
+  assert.match(css, /figtree\.woff2/, "bundled woff2 referenced");
+  assert.match(css, /font-family:[^;]*Figtree/, "global font-family override");
+  assert.match(css, /border-radius:\s*var\(--scaler-r-/, "rounded corners applied");
+});
+
+test("font/rounding extras don't leak to other themes", () => {
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("midnight");
+  window.applyTheme("dark");
+
+  const root = window.document.documentElement;
+  assert.ok(!root.classList.contains("scaler-theme-midnight"), "midnight class dropped");
+  assert.ok(root.classList.contains("scaler-theme-dark"), "dark id class set");
+  const css = window.document.getElementById(STYLE_ID).textContent;
+  assert.ok(!/@font-face/.test(css), "no font-face for plain dark");
+  assert.ok(!/border-radius:\s*var\(--scaler-r-/.test(css), "no rounding for plain dark");
+});
+
 test("initThemeManager reads the saved theme from chrome.storage.sync", async () => {
   const chrome = makeChrome({ syncStore: { cleanerSettings: { theme: "nord" } } });
   // The real extension uses the MV3 promise form (`await storage.sync.get`),

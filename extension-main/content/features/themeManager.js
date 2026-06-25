@@ -30,8 +30,20 @@ const SCALER_THEME_ROOT_CLASS = "scaler-theme-active";
 // saturate tuning is minor on media and visually acceptable).
 const SCALER_THEME_MEDIA_COUNTER = "invert(1) hue-rotate(180deg)";
 
+// Figtree is bundled with the extension (fonts/figtree.woff2) so it loads
+// reliably regardless of the page's CSP — exactly the font midnight-discord
+// uses. This is the same fallback stack midnight-discord declares.
+const SCALER_FONT_STACK =
+  "'Figtree','figtree','gg sans','Noto Sans','Helvetica Neue',Helvetica,Arial,sans-serif";
+
 // Theme catalogue. `filter: null` means "no theming" (off / light = the
 // site's native look). Order here is the order shown in the popup dropdown.
+//
+// A theme may also carry styling extras that are layered ON TOP of the filter:
+//   font:    apply the bundled Figtree font globally
+//   rounded: apply midnight-discord's rounded corners to UI elements
+// These are real CSS (unaffected by the root filter) and are scoped to the
+// theme's own class, so they only touch the theme that opts in.
 const SCALER_THEMES = {
   off: { label: "🌞 Light (Off)", filter: null },
   dark: {
@@ -39,8 +51,13 @@ const SCALER_THEMES = {
     filter: "invert(1) hue-rotate(180deg)",
   },
   midnight: {
+    // Ported from refact0r/midnight-discord: its hue-220 blue-gray darkness
+    // (approximated via a tuned root filter for full site compatibility) PLUS
+    // its exact Figtree font and rounded corners.
     label: "🌌 Midnight",
-    filter: "invert(0.92) hue-rotate(180deg) brightness(0.92) contrast(1.05)",
+    filter: "invert(0.9) hue-rotate(180deg) brightness(0.94) saturate(0.9)",
+    font: true,
+    rounded: true,
   },
   dracula: {
     label: "🧛 Dracula",
@@ -71,35 +88,127 @@ function resolveTheme(themeId) {
 }
 
 /**
- * Build the CSS for a given theme recipe.
+ * The class that scopes a theme's optional font/rounding extras, e.g.
+ * "scaler-theme-midnight". Lets extras touch only the opted-in theme.
  */
-function buildThemeCss(filter) {
-  if (!filter) return "";
+function themeIdClass(id) {
+  return `scaler-theme-${id}`;
+}
+
+/**
+ * Build midnight-discord's Figtree @font-face + global font-family override.
+ * @param {string} fontUrl resolved URL to the bundled woff2.
+ */
+function buildFontCss(id, fontUrl) {
+  const scope = `html.${themeIdClass(id)}`;
   return `
-    html.${SCALER_THEME_ROOT_CLASS} {
-      filter: ${filter} !important;
+    @font-face {
+      font-family: 'Figtree';
+      font-style: normal;
+      font-weight: 300 900;
+      font-display: swap;
+      src: url('${fontUrl}') format('woff2');
+    }
+    ${scope}, ${scope} * {
+      font-family: ${SCALER_FONT_STACK} !important;
+    }
+  `;
+}
+
+/**
+ * Build midnight-discord's rounded-corner styling, scoped to the theme class.
+ * Uses case-insensitive class matching so it adapts to Scaler's utility class
+ * names without hard-coding any of them.
+ */
+function buildRoundedCss(id) {
+  const s = `html.${themeIdClass(id)}`;
+  return `
+    ${s} {
+      --scaler-r-sm: 8px;
+      --scaler-r-md: 12px;
+      --scaler-r-lg: 16px;
+    }
+    ${s} button,
+    ${s} input,
+    ${s} textarea,
+    ${s} select,
+    ${s} [class*="btn" i],
+    ${s} [class*="button" i],
+    ${s} [class*="card" i],
+    ${s} [class*="modal" i],
+    ${s} [class*="dialog" i],
+    ${s} [class*="panel" i],
+    ${s} [class*="badge" i],
+    ${s} [class*="chip" i],
+    ${s} [class*="tag" i] {
+      border-radius: var(--scaler-r-md) !important;
+    }
+    ${s} img,
+    ${s} video,
+    ${s} [class*="avatar" i],
+    ${s} [class*="thumbnail" i],
+    ${s} [class*="cover" i] {
+      border-radius: var(--scaler-r-lg) !important;
+    }
+    ${s} ::-webkit-scrollbar-thumb {
+      border-radius: var(--scaler-r-lg) !important;
+    }
+  `;
+}
+
+/**
+ * Build the full CSS for a theme: the root colour filter (+ media counter)
+ * plus any opted-in font / rounded-corner extras.
+ * @param {object} theme   resolved theme entry (with id)
+ * @param {string} fontUrl resolved bundled-font URL
+ */
+function buildThemeCss(theme, fontUrl) {
+  if (!theme || !theme.filter) return "";
+  const r = SCALER_THEME_ROOT_CLASS;
+  let css = `
+    html.${r} {
+      filter: ${theme.filter} !important;
       background-color: #ffffff !important;
       transition: filter 0.25s ease;
     }
 
     /* Keep real media looking natural — undo the root inversion. */
-    html.${SCALER_THEME_ROOT_CLASS} img,
-    html.${SCALER_THEME_ROOT_CLASS} video,
-    html.${SCALER_THEME_ROOT_CLASS} canvas,
-    html.${SCALER_THEME_ROOT_CLASS} iframe,
-    html.${SCALER_THEME_ROOT_CLASS} embed,
-    html.${SCALER_THEME_ROOT_CLASS} object,
-    html.${SCALER_THEME_ROOT_CLASS} svg image,
-    html.${SCALER_THEME_ROOT_CLASS} [style*="background-image"],
-    html.${SCALER_THEME_ROOT_CLASS} .scaler-no-invert {
+    html.${r} img,
+    html.${r} video,
+    html.${r} canvas,
+    html.${r} iframe,
+    html.${r} embed,
+    html.${r} object,
+    html.${r} svg image,
+    html.${r} [style*="background-image"],
+    html.${r} .scaler-no-invert {
       filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
     }
 
     /* Double-negative guard: a media element that opts back in. */
-    html.${SCALER_THEME_ROOT_CLASS} .scaler-keep-invert {
+    html.${r} .scaler-keep-invert {
       filter: none !important;
     }
   `;
+
+  if (theme.font && fontUrl) css += buildFontCss(theme.id, fontUrl);
+  if (theme.rounded) css += buildRoundedCss(theme.id);
+  return css;
+}
+
+/**
+ * Resolve the bundled font URL (chrome-extension:// in the browser; a plain
+ * relative path under tests where chrome.runtime.getURL is absent).
+ */
+function resolveFontUrl() {
+  try {
+    if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
+      return chrome.runtime.getURL("fonts/figtree.woff2");
+    }
+  } catch (_) {
+    /* fall through */
+  }
+  return "fonts/figtree.woff2";
 }
 
 /**
@@ -125,6 +234,12 @@ function applyTheme(themeId) {
   const theme = resolveTheme(themeId);
   const root = document.documentElement;
 
+  // Always clear any previous per-theme id class (e.g. scaler-theme-midnight)
+  // so font/rounding extras never leak across a theme switch.
+  Object.keys(SCALER_THEMES).forEach((id) =>
+    root.classList.remove(themeIdClass(id)),
+  );
+
   if (!theme.filter) {
     // Off: strip the class and clear the stylesheet.
     root.classList.remove(SCALER_THEME_ROOT_CLASS);
@@ -133,8 +248,9 @@ function applyTheme(themeId) {
     return;
   }
 
-  getThemeStyleNode().textContent = buildThemeCss(theme.filter);
+  getThemeStyleNode().textContent = buildThemeCss(theme, resolveFontUrl());
   root.classList.add(SCALER_THEME_ROOT_CLASS);
+  root.classList.add(themeIdClass(theme.id));
 }
 
 /**
