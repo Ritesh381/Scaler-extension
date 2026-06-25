@@ -53,11 +53,22 @@ const SCALER_THEMES = {
   midnight: {
     // Ported from refact0r/midnight-discord: its hue-220 blue-gray darkness
     // (approximated via a tuned root filter for full site compatibility) PLUS
-    // its exact Figtree font and rounded corners.
+    // its exact Figtree font, rounded corners and blue accent.
+    //
+    // The leading sepia() tints otherwise-hueless neutrals so they lean
+    // blue-gray (hue ~220) after the invert+hue-rotate, matching midnight's
+    // bg rather than a flat neutral grey.
     label: "🌌 Midnight",
-    filter: "invert(0.9) hue-rotate(180deg) brightness(0.94) saturate(0.9)",
+    filter:
+      "invert(0.9) sepia(0.14) hue-rotate(185deg) brightness(0.92) saturate(1.05)",
+    // Root background shown behind transparent gaps. This is the PRE-image of
+    // midnight's dark blue-gray — the filter flips its lightness to ~10%.
+    bg: "hsl(40, 12%, 92%)",
     font: true,
     rounded: true,
+    // Accent PRE-image: a dark blue that the root filter flips into midnight's
+    // light blue (oklch(70% 0.1 215)). Applied to scrollbar/selection/links.
+    accent: "hsl(212, 45%, 30%)",
   },
   dracula: {
     label: "🧛 Dracula",
@@ -157,6 +168,28 @@ function buildRoundedCss(id) {
 }
 
 /**
+ * Build midnight-discord's blue accent, scoped to the theme class.
+ * `accent` is the PRE-image color: the root filter flips its lightness, so a
+ * dark blue here renders as midnight's light blue on screen.
+ */
+function buildAccentCss(id, accent) {
+  const s = `html.${themeIdClass(id)}`;
+  return `
+    ${s} { accent-color: ${accent} !important; }
+    ${s} ::selection { background: ${accent} !important; color: #fff !important; }
+    ${s} ::-webkit-scrollbar-thumb { background: ${accent} !important; }
+    ${s} ::-webkit-scrollbar-thumb:hover { background: ${accent} !important; filter: brightness(1.2); }
+    ${s} a:not([role="button"]),
+    ${s} a:not([role="button"]) * {
+      color: ${accent} !important;
+    }
+    ${s} :focus-visible {
+      outline-color: ${accent} !important;
+    }
+  `;
+}
+
+/**
  * Build the full CSS for a theme: the root colour filter (+ media counter)
  * plus any opted-in font / rounded-corner extras.
  * @param {object} theme   resolved theme entry (with id)
@@ -168,7 +201,7 @@ function buildThemeCss(theme, fontUrl) {
   let css = `
     html.${r} {
       filter: ${theme.filter} !important;
-      background-color: #ffffff !important;
+      background-color: ${theme.bg || "#ffffff"} !important;
       transition: filter 0.25s ease;
     }
 
@@ -193,6 +226,7 @@ function buildThemeCss(theme, fontUrl) {
 
   if (theme.font && fontUrl) css += buildFontCss(theme.id, fontUrl);
   if (theme.rounded) css += buildRoundedCss(theme.id);
+  if (theme.accent) css += buildAccentCss(theme.id, theme.accent);
   return css;
 }
 

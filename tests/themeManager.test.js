@@ -76,6 +76,10 @@ test("midnight ports the Figtree font and rounded corners", () => {
   assert.match(css, /figtree\.woff2/, "bundled woff2 referenced");
   assert.match(css, /font-family:[^;]*Figtree/, "global font-family override");
   assert.match(css, /border-radius:\s*var\(--scaler-r-/, "rounded corners applied");
+  // Blue accent (pre-image color) on scrollbar/selection/links.
+  assert.match(css, /::-webkit-scrollbar-thumb\s*\{\s*background:/, "accent scrollbar");
+  assert.match(css, /::selection\s*\{\s*background:/, "accent selection");
+  assert.match(css, /accent-color:/, "native accent-color set");
 });
 
 test("font/rounding extras don't leak to other themes", () => {
