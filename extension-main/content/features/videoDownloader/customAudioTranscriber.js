@@ -265,22 +265,6 @@ class CustomAudioTranscriber {
     } finally {
       if (audioCtx.close) await audioCtx.close();
     }
-    let wavBlobs = await this._resampleToWavBlobs(decodedBuffer);
-
-    // The monolithic decodeAudioData() call can silently mis-handle a large
-    // concatenated ADTS stream and emit silence. If that happened, retry via
-    // the per-frame chunked decode, which is more tolerant of irregularities.
-    if (this._isAllSilent(wavBlobs)) {
-      this.log("⚠ Whole-stream decode produced silent audio. Retrying with chunked ADTS decode...");
-      const fallbackBlobs = await this._decodeAdtsInChunks(rawAudioBuffer, audioCtx);
-      if (fallbackBlobs && fallbackBlobs.length > 0 && !this._isAllSilent(fallbackBlobs)) {
-        this.log("✅ Chunked ADTS decode recovered audible audio.");
-        wavBlobs = fallbackBlobs;
-      }
-    }
-
-    if (audioCtx.close) await audioCtx.close();
-    return wavBlobs;
   }
 
   /**

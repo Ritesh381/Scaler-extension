@@ -135,13 +135,15 @@ async function generateSummaryViaLLM({ baseUrl, apiKey, model, transcript }) {
     text = text.slice(0, SUMMARY_MAX_TRANSCRIPT_CHARS);
   }
 
+  // Keep the request minimal for broad OpenAI-compatible support: only the
+  // baseUrl/apiKey essentials plus model + messages. No temperature or other
+  // tuning params — some models (e.g. gpt-5.5) reject any non-default value.
   const body = {
     model: model && model.trim() ? model.trim() : "gpt-4o-mini",
     messages: [
       { role: "system", content: SUMMARY_SYSTEM_PROMPT },
       { role: "user", content: text },
     ],
-    temperature: 0.2,
     response_format: { type: "json_object" },
   };
 
