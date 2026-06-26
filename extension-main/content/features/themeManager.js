@@ -469,21 +469,33 @@ function evaluateAndRender() {
   const root = document.documentElement;
   const theme = resolveTheme(_currentThemeId);
 
-  // Reset all theme classes first; we re-add what this page needs.
-  root.classList.remove(SCALER_THEME_ROOT_CLASS);
-  Object.keys(SCALER_THEMES).forEach((id) =>
-    root.classList.remove(themeIdClass(id)),
-  );
+  // Desired state for THIS page.
+  const wantInvert = !!theme.filter && !pageIsDark();
+  const wantIdClass = wantInvert ? themeIdClass(theme.id) : null;
 
-  if (!theme.filter || pageIsDark()) {
-    // Off, or a natively-dark page: don't invert. Drop any runtime flags.
-    clearDarkRegions();
-    return;
+  // IMPORTANT: reconcile (diff) instead of remove-then-add. Unconditionally
+  // toggling the invert class on every DOM mutation made the page flash light
+  // for a frame each render. Only touch a class when it actually needs to
+  // change, so a stable page never flickers.
+  const hasActive = root.classList.contains(SCALER_THEME_ROOT_CLASS);
+  if (wantInvert && !hasActive) root.classList.add(SCALER_THEME_ROOT_CLASS);
+  else if (!wantInvert && hasActive) {
+    root.classList.remove(SCALER_THEME_ROOT_CLASS);
   }
 
-  root.classList.add(SCALER_THEME_ROOT_CLASS);
-  root.classList.add(themeIdClass(theme.id));
-  neutralizeDarkRegions(document.body);
+  // Reconcile the per-theme id class: drop any stale one, ensure the wanted one.
+  Object.keys(SCALER_THEMES).forEach((id) => {
+    const cls = themeIdClass(id);
+    if (cls !== wantIdClass && root.classList.contains(cls)) {
+      root.classList.remove(cls);
+    }
+  });
+  if (wantIdClass && !root.classList.contains(wantIdClass)) {
+    root.classList.add(wantIdClass);
+  }
+
+  if (wantInvert) neutralizeDarkRegions(document.body);
+  else clearDarkRegions();
 }
 
 let _themeObserver = null;
@@ -590,6 +602,7 @@ if (typeof window !== "undefined") {
   window.neutralizeDarkRegions = neutralizeDarkRegions;
   window.clearDarkRegions = clearDarkRegions;
   window.pageIsDark = pageIsDark;
+  window.evaluateAndRender = evaluateAndRender;
 
   // Apply ASAP. Content scripts run at document_idle, so content.js's
   // load / DOMContentLoaded handlers may fire AFTER this point (or already

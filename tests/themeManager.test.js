@@ -145,6 +145,33 @@ test("a light page still gets inverted", () => {
   );
 });
 
+test("re-rendering a stable page does NOT toggle the invert class (no flash)", () => {
+  const html = `<!DOCTYPE html><html><body style="background-color: rgb(255,255,255)">
+    <div>content</div>
+  </body></html>`;
+  const { window } = loadFeature(THEME_FILE, { html });
+  window.applyTheme("dark");
+  const root = window.document.documentElement;
+  assert.ok(root.classList.contains(ROOT_CLASS), "invert applied");
+
+  // Spy on classList.remove — a stable re-render must NOT remove the class
+  // (the old code removed-then-readded every render, causing a flash).
+  let togglesOff = 0;
+  const orig = root.classList.remove.bind(root.classList);
+  root.classList.remove = (...cls) => {
+    if (cls.includes(ROOT_CLASS)) togglesOff += 1;
+    return orig(...cls);
+  };
+
+  // Simulate several DOM-render cycles.
+  window.evaluateAndRender();
+  window.evaluateAndRender();
+  window.evaluateAndRender();
+
+  assert.equal(togglesOff, 0, "invert class never removed on stable re-renders");
+  assert.ok(root.classList.contains(ROOT_CLASS), "still inverted");
+});
+
 test("turning the theme off clears dark-region flags", () => {
   const html = `<!DOCTYPE html><html><body>
     <div class="monaco-editor" style="background-color: rgb(18, 18, 24)">code</div>
