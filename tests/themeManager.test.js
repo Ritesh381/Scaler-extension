@@ -172,6 +172,23 @@ test("re-rendering a stable page does NOT toggle the invert class (no flash)", (
   assert.ok(root.classList.contains(ROOT_CLASS), "still inverted");
 });
 
+test("scanning an added subtree flags its own dark root (incremental scan)", () => {
+  const html = `<!DOCTYPE html><html><body style="background-color: rgb(255,255,255)"></body></html>`;
+  const { window } = loadFeature(THEME_FILE, { html });
+  window.applyTheme("dark");
+
+  // Simulate the SPA inserting a dark widget; observer would pass it as scope.
+  const el = window.document.createElement("div");
+  el.setAttribute("style", "background-color: rgb(16, 16, 20)");
+  window.document.body.appendChild(el);
+  window.neutralizeDarkRegions(el); // scope === the added node itself
+
+  assert.ok(
+    el.classList.contains("scaler-no-invert"),
+    "added dark root flagged without a full-document scan",
+  );
+});
+
 test("turning the theme off clears dark-region flags", () => {
   const html = `<!DOCTYPE html><html><body>
     <div class="monaco-editor" style="background-color: rgb(18, 18, 24)">code</div>

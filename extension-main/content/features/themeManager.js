@@ -367,7 +367,12 @@ function neutralizeDarkRegions(scope) {
   if (!root) return;
   let nodes;
   try {
-    nodes = root.querySelectorAll(SCALER_DARK_CANDIDATES);
+    const descendants = Array.from(root.querySelectorAll(SCALER_DARK_CANDIDATES));
+    // Include the scope node itself — an added subtree's own root may be dark.
+    nodes =
+      root.nodeType === 1 && root.matches && root.matches(SCALER_DARK_CANDIDATES)
+        ? [root, ...descendants]
+        : descendants;
   } catch (_) {
     return;
   }
@@ -458,32 +463,23 @@ function pageIsDark() {
 let _currentThemeId = "off";
 
 /**
- * Decide and apply the rendered result for the current theme on THIS page:
- *  - theme off            → nothing.
- *  - page already dark     → leave it native (no invert, no extras).
- *  - light page + invert   → invert + protect any dark widgets on it.
- * Cheap and idempotent; safe to call on every navigation/mutation.
+ * Reconcile ONLY the root/theme classes for the current page (cheap: one
+ * pageIsDark() read + classList diffs). Returns whether inversion is active so
+ * callers can decide whether to scan for dark regions. Diff-based so a stable
+ * page never toggles a class (no flashing).
  */
-function evaluateAndRender() {
-  if (typeof document === "undefined" || !document.documentElement) return;
+function reconcileThemeClasses() {
   const root = document.documentElement;
   const theme = resolveTheme(_currentThemeId);
-
-  // Desired state for THIS page.
   const wantInvert = !!theme.filter && !pageIsDark();
   const wantIdClass = wantInvert ? themeIdClass(theme.id) : null;
 
-  // IMPORTANT: reconcile (diff) instead of remove-then-add. Unconditionally
-  // toggling the invert class on every DOM mutation made the page flash light
-  // for a frame each render. Only touch a class when it actually needs to
-  // change, so a stable page never flickers.
   const hasActive = root.classList.contains(SCALER_THEME_ROOT_CLASS);
   if (wantInvert && !hasActive) root.classList.add(SCALER_THEME_ROOT_CLASS);
   else if (!wantInvert && hasActive) {
     root.classList.remove(SCALER_THEME_ROOT_CLASS);
   }
 
-  // Reconcile the per-theme id class: drop any stale one, ensure the wanted one.
   Object.keys(SCALER_THEMES).forEach((id) => {
     const cls = themeIdClass(id);
     if (cls !== wantIdClass && root.classList.contains(cls)) {
@@ -493,24 +489,76 @@ function evaluateAndRender() {
   if (wantIdClass && !root.classList.contains(wantIdClass)) {
     root.classList.add(wantIdClass);
   }
+  return wantInvert;
+}
 
-  if (wantInvert) neutralizeDarkRegions(document.body);
+/**
+ * Full evaluate for THIS page (theme off / native-dark / light+invert). Does a
+ * one-off full-document dark-region scan — used on apply and navigation, NOT on
+ * every mutation (the observer scans only added subtrees to stay cheap).
+ *  - theme off            → nothing.
+ *  - page already dark     → leave it native (no invert, no extras).
+ *  - light page + invert   → invert + protect any dark widgets on it.
+ */
+function evaluateAndRender() {
+  if (typeof document === "undefined" || !document.documentElement) return;
+  if (reconcileThemeClasses()) neutralizeDarkRegions(document.body);
   else clearDarkRegions();
 }
 
 let _themeObserver = null;
 let _themeTimer = null;
+let _pendingNodes = new Set();
+
+/**
+ * Has the extension context been invalidated (extension reloaded/updated)?
+ * If so we must tear down so we don't keep firing into a dead context.
+ */
+function contextGone() {
+  try {
+    return !(typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id);
+  } catch (_) {
+    return true;
+  }
+}
+
+/**
+ * Flush queued mutations: reconcile classes (cheap) and scan ONLY the newly
+ * added subtrees for dark regions — never the whole document. This keeps cost
+ * proportional to what changed, not to page size, so it doesn't churn CPU/
+ * memory on a constantly-mutating dashboard.
+ */
+function flushPendingNodes() {
+  if (contextGone()) {
+    stopThemeObserver();
+    return;
+  }
+  const wantInvert = reconcileThemeClasses();
+  if (wantInvert) {
+    _pendingNodes.forEach((node) => {
+      if (node && node.isConnected) neutralizeDarkRegions(node);
+    });
+  }
+  _pendingNodes.clear();
+}
 
 /**
  * Re-evaluate the theme as the SPA swaps content / navigates (debounced) — so
- * dark widgets stay protected and natively-dark pages stay native.
+ * dark widgets stay protected and natively-dark pages stay native. Only added
+ * element subtrees are queued for scanning.
  */
 function startThemeObserver() {
   if (typeof MutationObserver === "undefined" || !document.body) return;
   if (_themeObserver) return;
-  _themeObserver = new MutationObserver(() => {
+  _themeObserver = new MutationObserver((records) => {
+    for (const rec of records) {
+      rec.addedNodes &&
+        rec.addedNodes.forEach((n) => {
+          if (n.nodeType === 1) _pendingNodes.add(n);
+        });
+    }
     clearTimeout(_themeTimer);
-    _themeTimer = setTimeout(evaluateAndRender, 400);
+    _themeTimer = setTimeout(flushPendingNodes, 200);
   });
   _themeObserver.observe(document.body, { childList: true, subtree: true });
 }
@@ -521,6 +569,7 @@ function stopThemeObserver() {
     _themeObserver = null;
   }
   clearTimeout(_themeTimer);
+  _pendingNodes.clear();
 }
 
 /**
@@ -610,5 +659,10 @@ if (typeof window !== "undefined") {
   if (document.documentElement) {
     initThemeManager();
     watchThemeChanges();
+  }
+
+  // Tear down the observer/timers when the page goes away, so nothing lingers.
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("pagehide", stopThemeObserver, { once: true });
   }
 }
