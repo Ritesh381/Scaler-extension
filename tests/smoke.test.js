@@ -12,7 +12,13 @@ function manifestContentScripts() {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(EXTENSION_ROOT, "manifest.json"), "utf8"),
   );
-  return manifest.content_scripts[0].js;
+  // The main feature bundle is the entry that includes content.js — there is
+  // also a tiny document_start preload entry, which we skip here.
+  const main =
+    manifest.content_scripts.find((cs) =>
+      (cs.js || []).some((f) => f.endsWith("content/content.js")),
+    ) || manifest.content_scripts[0];
+  return main.js;
 }
 
 function buildBundleWindow() {

@@ -69,6 +69,16 @@ const SCALER_DARK_CANDIDATES = [
 const SCALER_DARK_MIN_W = 48;
 const SCALER_DARK_MIN_H = 28;
 
+// Mirrored into the PAGE's localStorage so the document_start preload
+// (themePreload.js) can apply the theme before first paint — eliminating the
+// light→dark flash (FOUC). The dark-paths list lets the preload skip pages
+// that are natively dark, so it never flashes them.
+const SCALER_LS_THEME = "scalerpp_theme";
+const SCALER_LS_FILTER = "scalerpp_theme_filter";
+const SCALER_LS_BG = "scalerpp_theme_bg";
+const SCALER_LS_DARKPATHS = "scalerpp_dark_paths";
+const SCALER_PRELOAD_STYLE_ID = "scaler-theme-preload";
+
 // Figtree is bundled with the extension (fonts/figtree.woff2) so it loads
 // reliably regardless of the page's CSP — exactly the font midnight-discord
 // uses. This is the same fallback stack midnight-discord declares.
@@ -195,17 +205,13 @@ function buildRoundedCss(id) {
     ${s} [class*="card" i],
     ${s} [class*="modal" i],
     ${s} [class*="dialog" i],
-    ${s} [class*="panel" i],
-    ${s} [class*="badge" i],
-    ${s} [class*="chip" i],
-    ${s} [class*="tag" i] {
+    ${s} [class*="badge" i] {
       border-radius: var(--scaler-r-md) !important;
     }
     ${s} img,
     ${s} video,
     ${s} [class*="avatar" i],
-    ${s} [class*="thumbnail" i],
-    ${s} [class*="cover" i] {
+    ${s} [class*="thumbnail" i] {
       border-radius: var(--scaler-r-lg) !important;
     }
     ${s} ::-webkit-scrollbar-thumb {
@@ -221,18 +227,14 @@ function buildRoundedCss(id) {
  */
 function buildAccentCss(id, accent) {
   const s = `html.${themeIdClass(id)}`;
+  // Only unambiguous accent surfaces — NOT a blanket `a { color }` override,
+  // which would force every link (including card titles / nav items that are
+  // anchors) to blue and hurt readability.
   return `
     ${s} { accent-color: ${accent} !important; }
     ${s} ::selection { background: ${accent} !important; color: #fff !important; }
     ${s} ::-webkit-scrollbar-thumb { background: ${accent} !important; }
-    ${s} ::-webkit-scrollbar-thumb:hover { background: ${accent} !important; filter: brightness(1.2); }
-    ${s} a:not([role="button"]),
-    ${s} a:not([role="button"]) * {
-      color: ${accent} !important;
-    }
-    ${s} :focus-visible {
-      outline-color: ${accent} !important;
-    }
+    ${s} :focus-visible { outline-color: ${accent} !important; }
   `;
 }
 
@@ -249,7 +251,11 @@ function buildThemeCss(theme, fontUrl) {
     html.${r} {
       filter: ${theme.filter} !important;
       background-color: ${theme.bg || "#ffffff"} !important;
-      transition: filter 0.25s ease;
+    }
+
+    /* Never invert when printing / exporting to PDF — print the native colors. */
+    @media print {
+      html.${r} { filter: none !important; }
     }
 
     /* Keep real media + natively-dark widgets looking natural — undo the root
@@ -471,6 +477,69 @@ function pageIsDark() {
 let _currentThemeId = "off";
 
 /**
+ * Mirror the selected theme into the page's localStorage so the document_start
+ * preload can re-apply it before first paint on the next load.
+ */
+function mirrorThemeToStorage(theme) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (!theme || !theme.filter) {
+      localStorage.removeItem(SCALER_LS_THEME);
+      localStorage.removeItem(SCALER_LS_FILTER);
+      localStorage.removeItem(SCALER_LS_BG);
+      return;
+    }
+    localStorage.setItem(SCALER_LS_THEME, theme.id);
+    localStorage.setItem(SCALER_LS_FILTER, theme.filter);
+    localStorage.setItem(SCALER_LS_BG, theme.bg || "#ffffff");
+  } catch (_) {
+    /* localStorage may be blocked — preload just won't run, no harm */
+  }
+}
+
+/**
+ * Remember whether the current path is natively dark, so the preload can skip
+ * pre-inverting it next time (and stop skipping if it turns light again).
+ */
+function recordPageDarkness(isDark) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    let arr = [];
+    try {
+      arr = JSON.parse(localStorage.getItem(SCALER_LS_DARKPATHS) || "[]") || [];
+    } catch (_) {
+      arr = [];
+    }
+    const p = location.pathname;
+    const has = arr.includes(p);
+    if (isDark && !has) {
+      arr.push(p);
+      if (arr.length > 50) arr = arr.slice(-50);
+      localStorage.setItem(SCALER_LS_DARKPATHS, JSON.stringify(arr));
+    } else if (!isDark && has) {
+      localStorage.setItem(
+        SCALER_LS_DARKPATHS,
+        JSON.stringify(arr.filter((x) => x !== p)),
+      );
+    }
+  } catch (_) {
+    /* no-op */
+  }
+}
+
+/**
+ * Remove the document_start preload <style>. Once the main class-gated styles
+ * are in place, the preload's ungated `html { filter }` must go — otherwise it
+ * would keep inverting a natively-dark page.
+ */
+function removePreloadStyle() {
+  const el =
+    typeof document !== "undefined" &&
+    document.getElementById(SCALER_PRELOAD_STYLE_ID);
+  if (el) el.remove();
+}
+
+/**
  * Reconcile ONLY the root/theme classes for the current page (cheap: one
  * pageIsDark() read + classList diffs). Returns whether inversion is active so
  * callers can decide whether to scan for dark regions. Diff-based so a stable
@@ -479,8 +548,12 @@ let _currentThemeId = "off";
 function reconcileThemeClasses() {
   const root = document.documentElement;
   const theme = resolveTheme(_currentThemeId);
-  const wantInvert = !!theme.filter && !pageIsDark();
+  const isDark = pageIsDark();
+  const wantInvert = !!theme.filter && !isDark;
   const wantIdClass = wantInvert ? themeIdClass(theme.id) : null;
+
+  // Learn which paths are natively dark (only meaningful when a theme is on).
+  if (theme.filter) recordPageDarkness(isDark);
 
   const hasActive = root.classList.contains(SCALER_THEME_ROOT_CLASS);
   if (wantInvert && !hasActive) root.classList.add(SCALER_THEME_ROOT_CLASS);
@@ -512,6 +585,9 @@ function evaluateAndRender() {
   if (typeof document === "undefined" || !document.documentElement) return;
   if (reconcileThemeClasses()) neutralizeDarkRegions(document.body);
   else clearDarkRegions();
+  // Main class-gated styles now govern the page — drop the preload shim so it
+  // can't keep inverting a natively-dark page.
+  removePreloadStyle();
 }
 
 let _themeObserver = null;
@@ -589,6 +665,9 @@ function applyTheme(themeId) {
 
   _currentThemeId = resolveTheme(themeId).id;
   const theme = resolveTheme(_currentThemeId);
+
+  // Mirror to localStorage so the next load's preload can avoid the FOUC.
+  mirrorThemeToStorage(theme);
 
   if (!theme.filter) {
     // Off: clear stylesheet, flags, observer, classes.

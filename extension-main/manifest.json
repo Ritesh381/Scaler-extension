@@ -44,6 +44,16 @@
         "https://scaler.com/*"
       ],
       "js": [
+        "content/core/themePreload.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.scaler.com/*",
+        "https://scaler.com/*"
+      ],
+      "js": [
         "content/cleaner/selectors.js",
         "content/core/settings.js",
         "content/core/styleInjector.js",

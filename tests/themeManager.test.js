@@ -57,8 +57,12 @@ test("switching themes replaces the recipe rather than stacking it", () => {
   window.applyTheme("dracula");
 
   const style = window.document.getElementById(STYLE_ID);
-  const occurrences = (style.textContent.match(/html\.scaler-theme-active \{/g) || []).length;
-  assert.equal(occurrences, 1, "exactly one root rule after switching");
+  // Count only the real root filter rule (the @media print rule uses
+  // `filter: none`, so it isn't matched here).
+  const occurrences = (
+    style.textContent.match(/scaler-theme-active \{\s*filter:\s*invert/g) || []
+  ).length;
+  assert.equal(occurrences, 1, "exactly one root filter rule after switching");
   assert.match(style.textContent, /hue-rotate\(200deg\)/, "dracula recipe applied");
 });
 
