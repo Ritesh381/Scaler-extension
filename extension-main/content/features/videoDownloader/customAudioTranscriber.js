@@ -240,25 +240,30 @@ class CustomAudioTranscriber {
   }
 
   /**
-   * Decodes the ENTIRE raw AAC/TS audio buffer at once.
-   * Resamples it to 16kHz Mono (highly compatible, small footprint).
-   * Splits the uncompressed PCM data into 10-minute chunks.
-   * Converts each chunk to a pristine WAV Blob (guaranteed <25MB).
+   * Decodes raw AAC/ADTS audio in bounded-size chunks (never the full lecture at once).
+   * Each chunk is resampled to 16kHz mono and split into WAV blobs (<25MB each).
    */
   async _prepareWavBlobs(rawAudioBuffer) {
-    this.log("Decoding complete raw audio stream...");
-    
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    let decodedBuffer;
     try {
-      // Decode the massive raw AAC/ADTS audio bytes at once
-      decodedBuffer = await audioCtx.decodeAudioData(rawAudioBuffer.slice(0));
-    } catch (e) {
-      this.log(`⚠ Web Audio decode failed: ${e.message}`);
-      this.log("Fallback: Attempting chunked ADTS decode to WAV...");
-      const fallbackBlobs = await this._decodeAdtsInChunks(rawAudioBuffer, audioCtx);
+      const frames = this._extractAdtsFrames(new Uint8Array(rawAudioBuffer));
+      if (frames.length > 0) {
+        this.log(`Decoding audio in ADTS chunks (${frames.length} frames)...`);
+        return await this._decodeAdtsInChunks(rawAudioBuffer, audioCtx);
+      }
+
+      // Non-ADTS fallback (e.g. MP3): only safe for small buffers — never a full lecture.
+      const SMALL_BUFFER_MAX_BYTES = 8 * 1024 * 1024;
+      if (rawAudioBuffer.byteLength <= SMALL_BUFFER_MAX_BYTES) {
+        this.log("No ADTS frames — decoding small non-ADTS buffer directly...");
+        const decodedBuffer = await audioCtx.decodeAudioData(rawAudioBuffer.slice(0));
+        return await this._resampleToWavBlobs(decodedBuffer);
+      }
+
+      this.log("⚠ No ADTS frames in large buffer — refusing full-buffer decode.");
+      return [];
+    } finally {
       if (audioCtx.close) await audioCtx.close();
-      return fallbackBlobs;
     }
     let wavBlobs = await this._resampleToWavBlobs(decodedBuffer);
 
@@ -344,6 +349,8 @@ class CustomAudioTranscriber {
     const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
     const chunkBuffers = this._buildAdtsChunks(frames, MAX_CHUNK_BYTES);
     const wavBlobs = [];
+
+    this.log(`Processing ${chunkBuffers.length} ADTS chunk(s) (max ${MAX_CHUNK_BYTES / 1024 / 1024} MB each)...`);
 
     for (let i = 0; i < chunkBuffers.length; i++) {
       try {
