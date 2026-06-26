@@ -431,76 +431,29 @@ function clearDarkRegions() {
 }
 
 /**
- * Luminance of an element's own opaque background, or null if transparent.
- */
-function ownBgLuminance(el) {
-  if (!el) return null;
-  try {
-    const bg = parseRgb(getComputedStyle(el).backgroundColor);
-    return bg && bg.a >= 0.5 ? luminance(bg) : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-/**
- * Walk up from an element to the first ancestor with an opaque background and
- * return its luminance (the effective backdrop behind that point).
- */
-function backdropLuminanceAt(x, y) {
-  try {
-    let el = document.elementFromPoint(x, y);
-    while (el) {
-      const l = ownBgLuminance(el);
-      if (l !== null) return l;
-      el = el.parentElement;
-    }
-  } catch (_) {
-    /* no-op */
-  }
-  return null;
-}
-
-/**
- * Luminance of the page's effective base background.
- *
- * Sample what's actually visible at the viewport EDGES (the true page backdrop)
- * rather than just <body>: some Scaler views are a dark full-screen overlay on
- * top of the light dashboard shell, so <body> reports light while the screen is
- * dark. Edges (not center) are used so a centered dark widget — e.g. a code
- * editor on an otherwise-light page — doesn't flip the whole page. Falls back to
- * body → root → largest child when point sampling is unavailable (e.g. jsdom).
+ * Luminance of the page's effective base background. Reads body, then the
+ * root element, then the largest opaque-background top-level child. Returns 1
+ * (assume light) when nothing opaque is found.
  */
 function pageBaseLuminance() {
-  const lums = [];
-  const w = typeof innerWidth === "number" ? innerWidth : 0;
-  const h = typeof innerHeight === "number" ? innerHeight : 0;
-  if (typeof document !== "undefined" && document.elementFromPoint && w && h) {
-    // Mostly edge/margin points — they reflect the backdrop, not centered UI.
-    const pts = [
-      [0.04, 0.5], [0.96, 0.5], // left / right mid
-      [0.5, 0.95], [0.12, 0.92], [0.88, 0.92], // bottom band
-      [0.5, 0.5], // one center sample as a tiebreaker
-    ];
-    for (const [fx, fy] of pts) {
-      const l = backdropLuminanceAt(Math.round(w * fx), Math.round(h * fy));
-      if (l !== null) lums.push(l);
+  const sample = (el) => {
+    if (!el) return null;
+    try {
+      const bg = parseRgb(getComputedStyle(el).backgroundColor);
+      return bg && bg.a >= 0.5 ? luminance(bg) : null;
+    } catch (_) {
+      return null;
     }
-  }
-  if (lums.length) {
-    lums.sort((a, b) => a - b);
-    return lums[Math.floor(lums.length / 2)]; // median → robust to outliers
-  }
-
-  // Fallback (no layout / jsdom): body → root → largest opaque top-level child.
-  let lum = ownBgLuminance(document.body);
-  if (lum === null) lum = ownBgLuminance(document.documentElement);
+  };
+  let lum = sample(document.body);
+  if (lum === null) lum = sample(document.documentElement);
   if (lum === null && document.body) {
+    // Largest top-level child with an opaque background ≈ the app shell bg.
     let best = null;
     let bestArea = 0;
     Array.from(document.body.children).forEach((el) => {
       const area = (el.offsetWidth || 0) * (el.offsetHeight || 0);
-      const l = ownBgLuminance(el);
+      const l = sample(el);
       if (l !== null && area >= bestArea) {
         bestArea = area;
         best = l;
