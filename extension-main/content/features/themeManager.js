@@ -411,28 +411,104 @@ function clearDarkRegions() {
   });
 }
 
-let _darkRegionObserver = null;
-let _darkRegionTimer = null;
-
 /**
- * Keep dark regions flagged as the SPA swaps content in (debounced).
+ * Luminance of the page's effective base background. Reads body, then the
+ * root element, then the largest opaque-background top-level child. Returns 1
+ * (assume light) when nothing opaque is found.
  */
-function observeDarkRegions() {
-  if (typeof MutationObserver === "undefined" || !document.body) return;
-  if (_darkRegionObserver) return;
-  _darkRegionObserver = new MutationObserver(() => {
-    clearTimeout(_darkRegionTimer);
-    _darkRegionTimer = setTimeout(() => neutralizeDarkRegions(document.body), 400);
-  });
-  _darkRegionObserver.observe(document.body, { childList: true, subtree: true });
+function pageBaseLuminance() {
+  const sample = (el) => {
+    if (!el) return null;
+    try {
+      const bg = parseRgb(getComputedStyle(el).backgroundColor);
+      return bg && bg.a >= 0.5 ? luminance(bg) : null;
+    } catch (_) {
+      return null;
+    }
+  };
+  let lum = sample(document.body);
+  if (lum === null) lum = sample(document.documentElement);
+  if (lum === null && document.body) {
+    // Largest top-level child with an opaque background ≈ the app shell bg.
+    let best = null;
+    let bestArea = 0;
+    Array.from(document.body.children).forEach((el) => {
+      const area = (el.offsetWidth || 0) * (el.offsetHeight || 0);
+      const l = sample(el);
+      if (l !== null && area >= bestArea) {
+        bestArea = area;
+        best = l;
+      }
+    });
+    lum = best;
+  }
+  return lum === null ? 1 : lum;
 }
 
-function stopDarkRegionObserver() {
-  if (_darkRegionObserver) {
-    _darkRegionObserver.disconnect();
-    _darkRegionObserver = null;
+/**
+ * Is the current page already dark by default? (Then inverting it is wrong —
+ * we leave it native.)
+ */
+function pageIsDark() {
+  return pageBaseLuminance() < 0.22;
+}
+
+// Currently-selected theme id (persists across SPA navigation). The rendered
+// result is re-decided per page because some Scaler pages are natively dark.
+let _currentThemeId = "off";
+
+/**
+ * Decide and apply the rendered result for the current theme on THIS page:
+ *  - theme off            → nothing.
+ *  - page already dark     → leave it native (no invert, no extras).
+ *  - light page + invert   → invert + protect any dark widgets on it.
+ * Cheap and idempotent; safe to call on every navigation/mutation.
+ */
+function evaluateAndRender() {
+  if (typeof document === "undefined" || !document.documentElement) return;
+  const root = document.documentElement;
+  const theme = resolveTheme(_currentThemeId);
+
+  // Reset all theme classes first; we re-add what this page needs.
+  root.classList.remove(SCALER_THEME_ROOT_CLASS);
+  Object.keys(SCALER_THEMES).forEach((id) =>
+    root.classList.remove(themeIdClass(id)),
+  );
+
+  if (!theme.filter || pageIsDark()) {
+    // Off, or a natively-dark page: don't invert. Drop any runtime flags.
+    clearDarkRegions();
+    return;
   }
-  clearTimeout(_darkRegionTimer);
+
+  root.classList.add(SCALER_THEME_ROOT_CLASS);
+  root.classList.add(themeIdClass(theme.id));
+  neutralizeDarkRegions(document.body);
+}
+
+let _themeObserver = null;
+let _themeTimer = null;
+
+/**
+ * Re-evaluate the theme as the SPA swaps content / navigates (debounced) — so
+ * dark widgets stay protected and natively-dark pages stay native.
+ */
+function startThemeObserver() {
+  if (typeof MutationObserver === "undefined" || !document.body) return;
+  if (_themeObserver) return;
+  _themeObserver = new MutationObserver(() => {
+    clearTimeout(_themeTimer);
+    _themeTimer = setTimeout(evaluateAndRender, 400);
+  });
+  _themeObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function stopThemeObserver() {
+  if (_themeObserver) {
+    _themeObserver.disconnect();
+    _themeObserver = null;
+  }
+  clearTimeout(_themeTimer);
 }
 
 /**
@@ -442,33 +518,23 @@ function stopDarkRegionObserver() {
 function applyTheme(themeId) {
   if (typeof document === "undefined" || !document.documentElement) return;
 
-  const theme = resolveTheme(themeId);
-  const root = document.documentElement;
-
-  // Always clear any previous per-theme id class (e.g. scaler-theme-midnight)
-  // so font/rounding extras never leak across a theme switch.
-  Object.keys(SCALER_THEMES).forEach((id) =>
-    root.classList.remove(themeIdClass(id)),
-  );
+  _currentThemeId = resolveTheme(themeId).id;
+  const theme = resolveTheme(_currentThemeId);
 
   if (!theme.filter) {
-    // Off: strip the class, clear the stylesheet, drop dark-region flags.
-    root.classList.remove(SCALER_THEME_ROOT_CLASS);
+    // Off: clear stylesheet, flags, observer, classes.
     const existing = document.getElementById(SCALER_THEME_STYLE_ID);
     if (existing) existing.textContent = "";
-    stopDarkRegionObserver();
-    clearDarkRegions();
+    stopThemeObserver();
+    evaluateAndRender();
     return;
   }
 
+  // Stylesheet is theme-specific but page-agnostic — set it once here; the
+  // root/id classes (toggled in evaluateAndRender) gate whether it takes effect.
   getThemeStyleNode().textContent = buildThemeCss(theme, resolveFontUrl());
-  root.classList.add(SCALER_THEME_ROOT_CLASS);
-  root.classList.add(themeIdClass(theme.id));
-
-  // Protect natively-dark widgets (code editor, lecture player, etc.) from
-  // being inverted to white, and keep protecting them as the SPA mutates.
-  neutralizeDarkRegions(document.body);
-  observeDarkRegions();
+  evaluateAndRender();
+  startThemeObserver();
 }
 
 /**
@@ -523,6 +589,7 @@ if (typeof window !== "undefined") {
   window.watchThemeChanges = watchThemeChanges;
   window.neutralizeDarkRegions = neutralizeDarkRegions;
   window.clearDarkRegions = clearDarkRegions;
+  window.pageIsDark = pageIsDark;
 
   // Apply ASAP. Content scripts run at document_idle, so content.js's
   // load / DOMContentLoaded handlers may fire AFTER this point (or already

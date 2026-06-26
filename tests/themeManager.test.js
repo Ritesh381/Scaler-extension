@@ -116,6 +116,35 @@ test("natively-dark widgets are flagged so the invert doesn't whiten them", () =
   );
 });
 
+test("a natively-dark page is left native (no invert applied)", () => {
+  // body has its own dark background → the whole page is already dark.
+  const html = `<!DOCTYPE html><html><body style="background-color: rgb(14, 14, 18)">
+    <div class="chat" style="background-color: rgb(22,22,28)">chat</div>
+  </body></html>`;
+  const { window } = loadFeature(THEME_FILE, { html });
+  assert.equal(window.pageIsDark(), true, "page detected as dark");
+
+  window.applyTheme("dark");
+  const root = window.document.documentElement;
+  assert.ok(
+    !root.classList.contains(ROOT_CLASS),
+    "invert NOT applied on a natively-dark page",
+  );
+});
+
+test("a light page still gets inverted", () => {
+  const html = `<!DOCTYPE html><html><body style="background-color: rgb(255,255,255)">
+    <div>content</div>
+  </body></html>`;
+  const { window } = loadFeature(THEME_FILE, { html });
+  assert.equal(window.pageIsDark(), false, "page detected as light");
+  window.applyTheme("dark");
+  assert.ok(
+    window.document.documentElement.classList.contains(ROOT_CLASS),
+    "invert applied on a light page",
+  );
+});
+
 test("turning the theme off clears dark-region flags", () => {
   const html = `<!DOCTYPE html><html><body>
     <div class="monaco-editor" style="background-color: rgb(18, 18, 24)">code</div>
