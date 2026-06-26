@@ -95,6 +95,39 @@ test("font/rounding extras don't leak to other themes", () => {
   assert.ok(!/border-radius:\s*var\(--scaler-r-/.test(css), "no rounding for plain dark");
 });
 
+test("natively-dark widgets are flagged so the invert doesn't whiten them", () => {
+  const html = `<!DOCTYPE html><html><body>
+    <div class="monaco-editor" style="background-color: rgb(20, 22, 28)">code</div>
+    <pre style="background-color: rgb(255, 255, 255)">light snippet</pre>
+  </body></html>`;
+  const { window } = loadFeature(THEME_FILE, { html });
+  window.applyTheme("dark");
+  window.neutralizeDarkRegions(window.document.body);
+
+  const editor = window.document.querySelector(".monaco-editor");
+  const lightPre = window.document.querySelector("pre");
+  assert.ok(
+    editor.classList.contains("scaler-no-invert"),
+    "dark editor flagged for counter-invert",
+  );
+  assert.ok(
+    !lightPre.classList.contains("scaler-no-invert"),
+    "light element left alone",
+  );
+});
+
+test("turning the theme off clears dark-region flags", () => {
+  const html = `<!DOCTYPE html><html><body>
+    <div class="monaco-editor" style="background-color: rgb(18, 18, 24)">code</div>
+  </body></html>`;
+  const { window } = loadFeature(THEME_FILE, { html });
+  window.applyTheme("dark");
+  window.neutralizeDarkRegions(window.document.body);
+  window.applyTheme("off");
+  const editor = window.document.querySelector(".monaco-editor");
+  assert.ok(!editor.classList.contains("scaler-no-invert"), "flag removed on off");
+});
+
 test("initThemeManager reads the saved theme from chrome.storage.sync", async () => {
   const chrome = makeChrome({ syncStore: { cleanerSettings: { theme: "nord" } } });
   // The real extension uses the MV3 promise form (`await storage.sync.get`),

@@ -30,6 +30,36 @@ const SCALER_THEME_ROOT_CLASS = "scaler-theme-active";
 // saturate tuning is minor on media and visually acceptable).
 const SCALER_THEME_MEDIA_COUNTER = "invert(1) hue-rotate(180deg)";
 
+// Class/attr used to flag natively-dark regions (code editors, video players,
+// the lecture whiteboard, dark output panels) that must NOT be inverted again —
+// otherwise a root invert turns them white. Flagged statically (selectors) and
+// dynamically (runtime luminance scan).
+const SCALER_NO_INVERT_CLASS = "scaler-no-invert";
+const SCALER_DARK_ATTR = "data-scaler-dark-region";
+
+// Elements that are commonly dark by default on Scaler. Stable third-party
+// editor classes plus case-insensitive keyword matches for Scaler's own
+// (obfuscated) widget containers. The runtime luminance check then confirms
+// each is actually dark before flagging it, so light editors are never touched.
+const SCALER_DARK_CANDIDATES = [
+  ".monaco-editor",
+  ".cm-editor",
+  ".CodeMirror",
+  ".ace_editor",
+  "pre",
+  "code",
+  '[class*="editor" i]',
+  '[class*="terminal" i]',
+  '[class*="console" i]',
+  '[class*="player" i]',
+  '[class*="video" i]',
+  '[class*="recorder" i]',
+  '[class*="whiteboard" i]',
+  '[class*="board" i]',
+  '[class*="output" i]',
+  '[class*="preview" i]',
+].join(",");
+
 // Figtree is bundled with the extension (fonts/figtree.woff2) so it loads
 // reliably regardless of the page's CSP — exactly the font midnight-discord
 // uses. This is the same fallback stack midnight-discord declares.
@@ -205,7 +235,9 @@ function buildThemeCss(theme, fontUrl) {
       transition: filter 0.25s ease;
     }
 
-    /* Keep real media looking natural — undo the root inversion. */
+    /* Keep real media + natively-dark widgets looking natural — undo the root
+       inversion. Stable editor/player classes are listed statically; other
+       dark regions are flagged at runtime with .${SCALER_NO_INVERT_CLASS}. */
     html.${r} img,
     html.${r} video,
     html.${r} canvas,
@@ -214,8 +246,23 @@ function buildThemeCss(theme, fontUrl) {
     html.${r} object,
     html.${r} svg image,
     html.${r} [style*="background-image"],
-    html.${r} .scaler-no-invert {
+    html.${r} .monaco-editor,
+    html.${r} .cm-editor,
+    html.${r} .CodeMirror,
+    html.${r} .ace_editor,
+    html.${r} .${SCALER_NO_INVERT_CLASS} {
       filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
+    }
+
+    /* A counter-inverted region is already back to normal orientation, so media
+       inside it must NOT be inverted again (that would double-flip it). */
+    html.${r} .${SCALER_NO_INVERT_CLASS} img,
+    html.${r} .${SCALER_NO_INVERT_CLASS} video,
+    html.${r} .${SCALER_NO_INVERT_CLASS} canvas,
+    html.${r} .${SCALER_NO_INVERT_CLASS} iframe,
+    html.${r} .${SCALER_NO_INVERT_CLASS} svg image,
+    html.${r} .${SCALER_NO_INVERT_CLASS} [style*="background-image"] {
+      filter: none !important;
     }
 
     /* Double-negative guard: a media element that opts back in. */
@@ -259,6 +306,111 @@ function getThemeStyleNode() {
 }
 
 /**
+ * Parse a CSS color string ("rgb(...)" / "rgba(...)") into {r,g,b,a}.
+ * Returns null for anything we can't read (e.g. "transparent", "", jsdom "").
+ */
+function parseRgb(str) {
+  if (!str) return null;
+  const m = str.match(
+    /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?/i,
+  );
+  if (!m) return null;
+  return {
+    r: +m[1],
+    g: +m[2],
+    b: +m[3],
+    a: m[4] === undefined ? 1 : +m[4],
+  };
+}
+
+/**
+ * Perceived (sRGB) luminance 0..1 of an {r,g,b}.
+ */
+function luminance({ r, g, b }) {
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+/**
+ * Is this element's own background a solid, dark color? (Transparent/near-
+ * transparent backgrounds inherit the parent and are left alone.)
+ */
+function hasDarkBackground(el) {
+  try {
+    const bg = parseRgb(getComputedStyle(el).backgroundColor);
+    return !!bg && bg.a >= 0.5 && luminance(bg) < 0.22;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Scan candidate elements and flag the genuinely-dark ones so the CSS counter
+ * rule keeps them dark instead of inverting them to white. Bounded to a
+ * curated candidate set + a luminance check, so it's cheap and never touches
+ * light elements. Skips anything already inside a flagged region.
+ */
+function neutralizeDarkRegions(scope) {
+  if (typeof document === "undefined" || !document.documentElement) return;
+  if (!document.documentElement.classList.contains(SCALER_THEME_ROOT_CLASS)) {
+    return;
+  }
+  const root = scope && scope.querySelectorAll ? scope : document.body;
+  if (!root) return;
+  let nodes;
+  try {
+    nodes = root.querySelectorAll(SCALER_DARK_CANDIDATES);
+  } catch (_) {
+    return;
+  }
+  nodes.forEach((el) => {
+    if (el.hasAttribute(SCALER_DARK_ATTR)) return;
+    // Don't flag something already inside a flagged region (avoid double flip).
+    if (el.parentElement && el.parentElement.closest(`.${SCALER_NO_INVERT_CLASS}`)) {
+      return;
+    }
+    if (hasDarkBackground(el)) {
+      el.classList.add(SCALER_NO_INVERT_CLASS);
+      el.setAttribute(SCALER_DARK_ATTR, "");
+    }
+  });
+}
+
+/**
+ * Remove all runtime dark-region flags (used when theming is turned off).
+ */
+function clearDarkRegions() {
+  if (typeof document === "undefined") return;
+  document.querySelectorAll(`[${SCALER_DARK_ATTR}]`).forEach((el) => {
+    el.classList.remove(SCALER_NO_INVERT_CLASS);
+    el.removeAttribute(SCALER_DARK_ATTR);
+  });
+}
+
+let _darkRegionObserver = null;
+let _darkRegionTimer = null;
+
+/**
+ * Keep dark regions flagged as the SPA swaps content in (debounced).
+ */
+function observeDarkRegions() {
+  if (typeof MutationObserver === "undefined" || !document.body) return;
+  if (_darkRegionObserver) return;
+  _darkRegionObserver = new MutationObserver(() => {
+    clearTimeout(_darkRegionTimer);
+    _darkRegionTimer = setTimeout(() => neutralizeDarkRegions(document.body), 400);
+  });
+  _darkRegionObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function stopDarkRegionObserver() {
+  if (_darkRegionObserver) {
+    _darkRegionObserver.disconnect();
+    _darkRegionObserver = null;
+  }
+  clearTimeout(_darkRegionTimer);
+}
+
+/**
  * Apply a theme by id. Pass "off" (or unknown) to remove all theming.
  * Safe to call repeatedly — it is idempotent.
  */
@@ -275,16 +427,23 @@ function applyTheme(themeId) {
   );
 
   if (!theme.filter) {
-    // Off: strip the class and clear the stylesheet.
+    // Off: strip the class, clear the stylesheet, drop dark-region flags.
     root.classList.remove(SCALER_THEME_ROOT_CLASS);
     const existing = document.getElementById(SCALER_THEME_STYLE_ID);
     if (existing) existing.textContent = "";
+    stopDarkRegionObserver();
+    clearDarkRegions();
     return;
   }
 
   getThemeStyleNode().textContent = buildThemeCss(theme, resolveFontUrl());
   root.classList.add(SCALER_THEME_ROOT_CLASS);
   root.classList.add(themeIdClass(theme.id));
+
+  // Protect natively-dark widgets (code editor, lecture player, etc.) from
+  // being inverted to white, and keep protecting them as the SPA mutates.
+  neutralizeDarkRegions(document.body);
+  observeDarkRegions();
 }
 
 /**
@@ -337,6 +496,8 @@ if (typeof window !== "undefined") {
   window.applyTheme = applyTheme;
   window.initThemeManager = initThemeManager;
   window.watchThemeChanges = watchThemeChanges;
+  window.neutralizeDarkRegions = neutralizeDarkRegions;
+  window.clearDarkRegions = clearDarkRegions;
 
   // Apply ASAP. Content scripts run at document_idle, so content.js's
   // load / DOMContentLoaded handlers may fire AFTER this point (or already
