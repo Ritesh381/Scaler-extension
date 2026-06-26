@@ -37,28 +37,37 @@ const SCALER_THEME_MEDIA_COUNTER = "invert(1) hue-rotate(180deg)";
 const SCALER_NO_INVERT_CLASS = "scaler-no-invert";
 const SCALER_DARK_ATTR = "data-scaler-dark-region";
 
-// Elements that are commonly dark by default on Scaler. Stable third-party
-// editor classes plus case-insensitive keyword matches for Scaler's own
-// (obfuscated) widget containers. The runtime luminance check then confirms
-// each is actually dark before flagging it, so light editors are never touched.
+// Candidate containers scanned for being natively dark. Scaler renders whole
+// sections dark by default (the lecture player + its top bar / chat sidebar /
+// notice board / icon rail, code editors, terminals, etc.). Inverting those
+// turns them white, so we scan structural containers broadly and the runtime
+// luminance check (hasDarkBackground) confirms each is actually dark before
+// flagging it — light elements are never touched. Document order means the
+// OUTERMOST dark container is flagged and its children are skipped.
 const SCALER_DARK_CANDIDATES = [
+  "div",
+  "section",
+  "header",
+  "footer",
+  "nav",
+  "aside",
+  "main",
+  "article",
+  "ul",
+  "ol",
+  "form",
+  "table",
+  "pre",
+  "code",
   ".monaco-editor",
   ".cm-editor",
   ".CodeMirror",
   ".ace_editor",
-  "pre",
-  "code",
-  '[class*="editor" i]',
-  '[class*="terminal" i]',
-  '[class*="console" i]',
-  '[class*="player" i]',
-  '[class*="video" i]',
-  '[class*="recorder" i]',
-  '[class*="whiteboard" i]',
-  '[class*="board" i]',
-  '[class*="output" i]',
-  '[class*="preview" i]',
 ].join(",");
+
+// Ignore slivers/icons — only treat reasonably-sized boxes as dark "regions".
+const SCALER_DARK_MIN_W = 48;
+const SCALER_DARK_MIN_H = 28;
 
 // Figtree is bundled with the extension (fonts/figtree.woff2) so it loads
 // reliably regardless of the page's CSP — exactly the font midnight-discord
@@ -362,16 +371,32 @@ function neutralizeDarkRegions(scope) {
   } catch (_) {
     return;
   }
+  // Two phases to avoid layout thrash:
+  //   1. read-only — measure size + background, collect dark candidates.
+  //   2. mutate — add classes, skipping any whose ancestor is already flagged
+  //      (so only the OUTERMOST dark region in a subtree is counter-inverted).
+  // Phase 2 only touches classes/attrs + reads DOM structure (no layout), so it
+  // never interleaves a style write with a layout read.
+  const darkCandidates = [];
   nodes.forEach((el) => {
     if (el.hasAttribute(SCALER_DARK_ATTR)) return;
-    // Don't flag something already inside a flagged region (avoid double flip).
+    // Skip tiny elements (icons, dividers) — only flag real regions. Only
+    // applies when layout is available (offset* are 0 under jsdom / no layout).
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    if ((w || h) && (w < SCALER_DARK_MIN_W || h < SCALER_DARK_MIN_H)) {
+      return;
+    }
+    if (hasDarkBackground(el)) darkCandidates.push(el);
+  });
+  // Document order → ancestors precede descendants, so the closest() check
+  // below sees an already-flagged ancestor and skips nested duplicates.
+  darkCandidates.forEach((el) => {
     if (el.parentElement && el.parentElement.closest(`.${SCALER_NO_INVERT_CLASS}`)) {
       return;
     }
-    if (hasDarkBackground(el)) {
-      el.classList.add(SCALER_NO_INVERT_CLASS);
-      el.setAttribute(SCALER_DARK_ATTR, "");
-    }
+    el.classList.add(SCALER_NO_INVERT_CLASS);
+    el.setAttribute(SCALER_DARK_ATTR, "");
   });
 }
 
