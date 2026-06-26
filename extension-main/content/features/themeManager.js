@@ -591,8 +591,27 @@ function evaluateAndRender() {
 }
 
 let _themeObserver = null;
-let _themeTimer = null;
+let _rafId = null;
+let _rafPending = false;
 let _pendingNodes = new Set();
+
+// Schedule a flush before the next paint. Using requestAnimationFrame (not a
+// timer) means newly-added dark regions are flagged BEFORE the browser paints
+// them — so a dark drawer/panel never flashes white-then-black on open. Falls
+// back to a short timer where rAF is unavailable.
+function scheduleFlush() {
+  if (_rafPending) return;
+  _rafPending = true;
+  const raf =
+    typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (cb) => setTimeout(cb, 16);
+  _rafId = raf(() => {
+    _rafPending = false;
+    _rafId = null;
+    flushPendingNodes();
+  });
+}
 
 /**
  * Has the extension context been invalidated (extension reloaded/updated)?
@@ -641,8 +660,7 @@ function startThemeObserver() {
           if (n.nodeType === 1) _pendingNodes.add(n);
         });
     }
-    clearTimeout(_themeTimer);
-    _themeTimer = setTimeout(flushPendingNodes, 200);
+    scheduleFlush();
   });
   _themeObserver.observe(document.body, { childList: true, subtree: true });
 }
@@ -652,7 +670,11 @@ function stopThemeObserver() {
     _themeObserver.disconnect();
     _themeObserver = null;
   }
-  clearTimeout(_themeTimer);
+  if (_rafId != null && typeof cancelAnimationFrame === "function") {
+    cancelAnimationFrame(_rafId);
+  }
+  _rafId = null;
+  _rafPending = false;
   _pendingNodes.clear();
 }
 
