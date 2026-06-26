@@ -142,6 +142,22 @@ test("a natively-dark page is left native (no invert applied)", () => {
   );
 });
 
+test("detects a dark overlay page via edge sampling even when body is light", () => {
+  const html = `<!DOCTYPE html><html><body style="background-color: rgb(255,255,255)">
+    <div id="overlay" style="background-color: rgb(10, 10, 14)">player</div>
+  </body></html>`;
+  const { window } = loadFeature(THEME_FILE, { html });
+  const overlay = window.document.getElementById("overlay");
+  // Simulate every viewport sample point landing on the dark overlay.
+  window.document.elementFromPoint = () => overlay;
+
+  assert.equal(
+    window.pageIsDark(),
+    true,
+    "edge sampling sees the dark overlay, not the light body",
+  );
+});
+
 test("a light page still gets inverted", () => {
   const html = `<!DOCTYPE html><html><body style="background-color: rgb(255,255,255)">
     <div>content</div>
