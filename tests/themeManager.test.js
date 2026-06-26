@@ -75,6 +75,12 @@ test("midnight ports the Figtree font and rounded corners", () => {
   assert.match(css, /Figtree/, "Figtree font referenced");
   assert.match(css, /figtree\.woff2/, "bundled woff2 referenced");
   assert.match(css, /font-family:[^;]*Figtree/, "global font-family override");
+  // Icon-safety: the font must NOT be forced on every element (`scope *`),
+  // which would clobber icon fonts and turn icons into garbled text.
+  assert.ok(
+    !/scaler-theme-midnight\s*\*/.test(css),
+    "font applied via inheritance, not a universal * override (icon-safe)",
+  );
   assert.match(css, /border-radius:\s*var\(--scaler-r-/, "rounded corners applied");
   // Blue accent (pre-image color) on scrollbar/selection/links.
   assert.match(css, /::-webkit-scrollbar-thumb\s*\{\s*background:/, "accent scrollbar");

@@ -146,7 +146,14 @@ function themeIdClass(id) {
 }
 
 /**
- * Build midnight-discord's Figtree @font-face + global font-family override.
+ * Build midnight-discord's Figtree @font-face + font-family override.
+ *
+ * IMPORTANT: apply the font via INHERITANCE (html + body only), NOT with a
+ * universal `* !important`. Icon fonts (Material Icons, FontAwesome, Scaler's
+ * own `cr-icon`, etc.) declare their own font-family directly on the element;
+ * a directly-set value always wins over an inherited one, so they keep their
+ * glyphs. The old `* !important` set Figtree directly on EVERY element, which
+ * clobbered those icon fonts and turned icons into garbled text.
  * @param {string} fontUrl resolved URL to the bundled woff2.
  */
 function buildFontCss(id, fontUrl) {
@@ -159,7 +166,8 @@ function buildFontCss(id, fontUrl) {
       font-display: swap;
       src: url('${fontUrl}') format('woff2');
     }
-    ${scope}, ${scope} * {
+    ${scope},
+    ${scope} body {
       font-family: ${SCALER_FONT_STACK} !important;
     }
   `;
