@@ -30,13 +30,14 @@ const SCALER_THEME_ROOT_CLASS = "scaler-theme-active";
 // saturate tuning is minor on media and visually acceptable).
 const SCALER_THEME_MEDIA_COUNTER = "invert(1) hue-rotate(180deg)";
 
-// Counter for natively-dark CODE EDITORS only. Same un-inversion as media, plus
-// a brightness BUMP so the editor's native dark-grey blends down toward the
-// inverted near-black page instead of standing out as a lighter panel. The
-// editor is sandwiched between the root invert and this counter invert, so
-// brightness > 1 here darkens the final result (and >1 keeps the light code
-// text readable). NOT used for media/generic regions (would dim photos/video).
-const SCALER_THEME_EDITOR_COUNTER =
+// Counter for natively-dark REGIONS (code editors, players, dark panels, etc.).
+// Same un-inversion as media, plus a brightness BUMP so the region's native
+// dark-grey blends down toward the inverted near-black page instead of standing
+// out as a lighter panel. A region sits between the root invert and this counter
+// invert, so brightness > 1 darkens the final result (and keeps light text
+// readable). Media INSIDE such a region is filter:none, so it only inherits the
+// 1.1x brightness (a slight brighten) — never dimmed.
+const SCALER_THEME_REGION_COUNTER =
   "invert(1) hue-rotate(180deg) brightness(1.1)";
 
 // Class/attr used to flag natively-dark regions (code editors, video players,
@@ -267,9 +268,7 @@ function buildThemeCss(theme, fontUrl) {
       html.${r} { filter: none !important; }
     }
 
-    /* Keep real media + natively-dark widgets looking natural — undo the root
-       inversion. Other dark regions are flagged at runtime with
-       .${SCALER_NO_INVERT_CLASS}. */
+    /* Real media: un-invert so photos/videos keep their natural colors. */
     html.${r} img,
     html.${r} video,
     html.${r} canvas,
@@ -277,19 +276,20 @@ function buildThemeCss(theme, fontUrl) {
     html.${r} embed,
     html.${r} object,
     html.${r} svg image,
-    html.${r} [style*="background-image"],
-    html.${r} .${SCALER_NO_INVERT_CLASS} {
+    html.${r} [style*="background-image"] {
       filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
     }
 
-    /* Code editors: un-invert AND darken slightly so the editor's native
-       dark-grey blends with the inverted near-black page (no media inside an
-       editor, so the brightness reduction is safe). */
+    /* Natively-dark regions (code editors, players, dark panels — flagged at
+       runtime with .${SCALER_NO_INVERT_CLASS}, plus stable editor classes):
+       un-invert AND darken so they blend with the inverted near-black page
+       instead of standing out as lighter panels. */
+    html.${r} .${SCALER_NO_INVERT_CLASS},
     html.${r} .monaco-editor,
     html.${r} .cm-editor,
     html.${r} .CodeMirror,
     html.${r} .ace_editor {
-      filter: ${SCALER_THEME_EDITOR_COUNTER} !important;
+      filter: ${SCALER_THEME_REGION_COUNTER} !important;
     }
 
     /* A counter-inverted region is already back to normal orientation, so media
