@@ -30,6 +30,15 @@ const SCALER_THEME_ROOT_CLASS = "scaler-theme-active";
 // saturate tuning is minor on media and visually acceptable).
 const SCALER_THEME_MEDIA_COUNTER = "invert(1) hue-rotate(180deg)";
 
+// Counter for natively-dark CODE EDITORS only. Same un-inversion as media, plus
+// a brightness BUMP so the editor's native dark-grey blends down toward the
+// inverted near-black page instead of standing out as a lighter panel. The
+// editor is sandwiched between the root invert and this counter invert, so
+// brightness > 1 here darkens the final result (and >1 keeps the light code
+// text readable). NOT used for media/generic regions (would dim photos/video).
+const SCALER_THEME_EDITOR_COUNTER =
+  "invert(1) hue-rotate(180deg) brightness(1.1)";
+
 // Class/attr used to flag natively-dark regions (code editors, video players,
 // the lecture whiteboard, dark output panels) that must NOT be inverted again —
 // otherwise a root invert turns them white. Flagged statically (selectors) and
@@ -259,8 +268,8 @@ function buildThemeCss(theme, fontUrl) {
     }
 
     /* Keep real media + natively-dark widgets looking natural — undo the root
-       inversion. Stable editor/player classes are listed statically; other
-       dark regions are flagged at runtime with .${SCALER_NO_INVERT_CLASS}. */
+       inversion. Other dark regions are flagged at runtime with
+       .${SCALER_NO_INVERT_CLASS}. */
     html.${r} img,
     html.${r} video,
     html.${r} canvas,
@@ -269,12 +278,18 @@ function buildThemeCss(theme, fontUrl) {
     html.${r} object,
     html.${r} svg image,
     html.${r} [style*="background-image"],
+    html.${r} .${SCALER_NO_INVERT_CLASS} {
+      filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
+    }
+
+    /* Code editors: un-invert AND darken slightly so the editor's native
+       dark-grey blends with the inverted near-black page (no media inside an
+       editor, so the brightness reduction is safe). */
     html.${r} .monaco-editor,
     html.${r} .cm-editor,
     html.${r} .CodeMirror,
-    html.${r} .ace_editor,
-    html.${r} .${SCALER_NO_INVERT_CLASS} {
-      filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
+    html.${r} .ace_editor {
+      filter: ${SCALER_THEME_EDITOR_COUNTER} !important;
     }
 
     /* A counter-inverted region is already back to normal orientation, so media
