@@ -280,6 +280,13 @@ function buildThemeCss(theme, fontUrl) {
       filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
     }
 
+    /* The extension's OWN spotlight overlay is already dark-themed, so the root
+       invert would flip it to light. Un-invert it (plain counter, no darkening)
+       so it renders exactly as designed. #id wins over the region rules below. */
+    html.${r} #scaler-spotlight-overlay {
+      filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
+    }
+
     /* Natively-dark regions (code editors, players, dark panels — flagged at
        runtime with .${SCALER_NO_INVERT_CLASS}, plus stable editor classes):
        un-invert AND darken so they blend with the inverted near-black page
