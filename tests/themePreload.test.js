@@ -39,7 +39,7 @@ test("applies the saved theme filter before paint", () => {
   const style = window.document.getElementById(PRELOAD_ID);
   assert.ok(style, "preload style injected");
   assert.match(style.textContent, /filter:\s*invert\(1\) hue-rotate\(180deg\)/);
-  assert.match(style.textContent, /\.monaco-editor/, "media/editor counter present");
+  assert.match(style.textContent, /html img,/, "media counter present");
 });
 
 test("does nothing when theme is off or unset", () => {

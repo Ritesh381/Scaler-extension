@@ -287,15 +287,17 @@ function buildThemeCss(theme, fontUrl) {
       filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
     }
 
-    /* Natively-dark regions (code editors, players, dark panels — flagged at
-       runtime with .${SCALER_NO_INVERT_CLASS}, plus stable editor classes):
-       un-invert AND darken so they blend with the inverted near-black page
-       instead of standing out as lighter panels. */
-    html.${r} .${SCALER_NO_INVERT_CLASS},
-    html.${r} .monaco-editor,
-    html.${r} .cm-editor,
-    html.${r} .CodeMirror,
-    html.${r} .ace_editor {
+    /* Natively-dark regions (code editors, players, dark panels) are flagged at
+       runtime with .${SCALER_NO_INVERT_CLASS} — ONLY when their background is
+       actually dark (luminance-checked). Un-invert AND darken so they blend
+       with the inverted near-black page.
+
+       NOTE: we deliberately do NOT statically counter editor classes
+       (.monaco-editor etc.). An editor on a LIGHT theme is white, and blindly
+       countering it would leave it white in dark mode. The luminance check
+       handles both: a light editor just inverts to dark; a dark editor is
+       flagged and countered. */
+    html.${r} .${SCALER_NO_INVERT_CLASS} {
       filter: ${SCALER_THEME_REGION_COUNTER} !important;
     }
 
@@ -421,6 +423,12 @@ function neutralizeDarkRegions(scope) {
   const darkCandidates = [];
   nodes.forEach((el) => {
     if (el.hasAttribute(SCALER_DARK_ATTR)) return;
+    // Never flag the extension's own spotlight overlay or anything inside it —
+    // it's handled entirely by its #id counter rule. Flagging the inner panel
+    // would counter it on top of the overlay's counter (double-flip → light).
+    if (el.id === "scaler-spotlight-overlay" || el.closest("#scaler-spotlight-overlay")) {
+      return;
+    }
     // Skip tiny elements (icons, dividers) — only flag real regions. Only
     // applies when layout is available (offset* are 0 under jsdom / no layout).
     const w = el.offsetWidth;

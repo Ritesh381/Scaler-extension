@@ -34,11 +34,13 @@
     if (darkPaths.indexOf(location.pathname) !== -1) return;
 
     var counter = "invert(1) hue-rotate(180deg)";
+    // Only un-invert real media here. Editors are intentionally NOT countered:
+    // a light-theme editor is white and would be left white. The main script's
+    // luminance check decides per editor once it loads.
     var css =
       "html{filter:" + filter + " !important;background-color:" + bg + " !important;}" +
       "html img,html video,html canvas,html iframe,html embed,html object," +
-      'html svg image,html [style*="background-image"],html .monaco-editor,' +
-      "html .cm-editor,html .CodeMirror,html .ace_editor{filter:" + counter + " !important;}";
+      'html svg image,html [style*="background-image"]{filter:' + counter + " !important;}";
 
     var s = document.createElement("style");
     s.id = "scaler-theme-preload";
