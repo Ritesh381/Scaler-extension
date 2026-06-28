@@ -50,6 +50,9 @@ const DEFAULT_SETTINGS = {
 
   // Spotlight Search
   "spotlight-search": true,
+
+  // Appearance — site-wide theme ("off" = native Scaler look)
+  theme: "off",
 };
 
 // Elements config for /academy/mentee-dashboard/todos page

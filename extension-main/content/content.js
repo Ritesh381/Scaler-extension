@@ -14,6 +14,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "settingsUpdated") {
     currentSettings = { ...DEFAULT_SETTINGS, ...message.settings };
     applyAllSettings();
+    if (typeof applyTheme === "function") applyTheme(currentSettings.theme);
     sendResponse({ success: true });
   } else if (message.action === "toggleSetting") {
     // Handle individual toggle change
@@ -116,6 +117,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!value && typeof closeSpotlight === "function") {
         closeSpotlight();
       }
+    } else if (key === "theme") {
+      // Site-wide theme switch — value is a theme id ("off", "dark", ...)
+      if (typeof applyTheme === "function") applyTheme(value);
     } else if (key === "lecture-info") {
       if (value) {
         if (typeof initLectureInfo === "function") initLectureInfo();
@@ -188,6 +192,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 window.addEventListener("load", async () => {
   await loadSettings();
   injectStyles();
+  if (typeof initThemeManager === "function") initThemeManager();
   setupUrlChangeDetection();
   setupModalObserver();
   setTimeout(runCleanup, 1000);
@@ -235,6 +240,7 @@ window.addEventListener("load", async () => {
 document.addEventListener("DOMContentLoaded", async () => {
   await loadSettings();
   injectStyles();
+  if (typeof initThemeManager === "function") initThemeManager();
   setupModalObserver();
   setTimeout(runCleanup, 500);
 
