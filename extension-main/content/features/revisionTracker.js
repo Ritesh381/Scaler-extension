@@ -8,9 +8,6 @@ const PANEL_ATTR = "data-revision-injected";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REVISION_INTERVALS = [1, 3, 7, 14, 30]; // days
 
-// Session-level cache — avoids duplicate fetches on SPA navigation
-let _problemsCache = null;
-
 // ─── Pure helpers ─────────────────────────────────────────────
 
 function _buildProblemUrl(p) {
