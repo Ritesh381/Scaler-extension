@@ -53,6 +53,9 @@ const DEFAULT_SETTINGS = {
 
   // Appearance — site-wide theme ("off" = native Scaler look)
   theme: "off",
+
+  // Smart Revision — spaced repetition for solved problems
+  "revision-tracker": true,
 };
 
 // Elements config for /academy/mentee-dashboard/todos page

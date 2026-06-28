@@ -176,6 +176,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const sTab = document.getElementById('classroom-lecture-summary'); if (sTab) sTab.remove();
         const sPanel = document.getElementById('scaler-summary-panel'); if (sPanel) sPanel.remove();
       }
+    } else if (key === "revision-tracker") {
+      if (value) {
+        if (typeof initRevisionTracker === "function") initRevisionTracker();
+      } else {
+        const panel = document.querySelector("[data-revision-injected]");
+        if (panel) panel.remove();
+      }
     } else {
       updateVisibilityForKey(key, value);
     }
@@ -235,6 +242,17 @@ window.addEventListener("load", async () => {
 
   // Initialize Spotlight Search (Ctrl+Space)
   if (typeof initSpotlightSearch === "function") initSpotlightSearch();
+
+  // Initialize Smart Revision tracker on dashboard pages
+  setTimeout(() => {
+    if (
+      currentSettings &&
+      currentSettings["revision-tracker"] &&
+      typeof initRevisionTracker === "function"
+    ) {
+      initRevisionTracker();
+    }
+  }, 2500);
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -305,4 +323,15 @@ handleUrlChange = function () {
 
   // Re-initialize Problem Picker on dashboard
   setTimeout(initProblemPicker, 1500);
+
+  // Re-render revision panel on SPA navigation
+  setTimeout(() => {
+    if (
+      currentSettings &&
+      currentSettings["revision-tracker"] &&
+      typeof initRevisionTracker === "function"
+    ) {
+      initRevisionTracker();
+    }
+  }, 2500);
 };

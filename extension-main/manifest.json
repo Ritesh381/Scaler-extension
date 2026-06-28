@@ -79,10 +79,12 @@
         "content/features/spotlightSearch.js",
         "content/features/liveStreamRecorder/liveStreamRecorder.js",
         "content/features/themeManager.js",
+        "content/features/revisionTracker.js",
         "content/content.js"
       ],
       "css": [
-        "content/features/liveStreamRecorder/liveStreamRecorder.css"
+        "content/features/liveStreamRecorder/liveStreamRecorder.css",
+        "content/features/revisionPanel.css"
       ],
       "run_at": "document_idle"
     }
