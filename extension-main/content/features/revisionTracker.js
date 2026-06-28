@@ -174,6 +174,10 @@ async function initRevisionTracker() {
   if (typeof currentSettings !== "undefined" && !currentSettings["revision-tracker"]) return;
   if (document.querySelector(`[${PANEL_ATTR}]`)) return;
 
+  // Only inject on the main Scaler dashboard / todos page
+  if (!location.href.includes("/academy/mentee-dashboard")) return;
+  if (location.pathname.includes("/problems/") || location.pathname.includes("/class/")) return;
+
   if (!_problemsCache) {
     try {
       const res = await fetch(

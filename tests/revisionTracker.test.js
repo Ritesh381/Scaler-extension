@@ -129,6 +129,7 @@ function loadWithChrome(localStore = {}, fetchRouter = null, settingOverride = {
     ? makeFetch(fetchRouter)
     : makeFetch(() => ({ ok: false, status: 401 }));
   return loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
     globals: {
       isExtensionValid: () => true,
       currentSettings: { "revision-tracker": true, ...settingOverride },
@@ -141,6 +142,7 @@ function loadWithChrome(localStore = {}, fetchRouter = null, settingOverride = {
 test("initRevisionTracker: feature off → fetch never called", async () => {
   let fetched = false;
   const { window } = loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
     globals: {
       isExtensionValid: () => true,
       currentSettings: { "revision-tracker": false },
@@ -162,6 +164,7 @@ test("initRevisionTracker: API failure → no throw, log unchanged", async () =>
 test("initRevisionTracker: network error → no throw", async () => {
   const chrome = makeChrome();
   const { window } = loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
     globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
     fetch: async () => { throw new Error("Network error"); },
     chrome,
@@ -214,6 +217,7 @@ test("initRevisionTracker: SPA guard — called twice, fetch called once", async
 test("_injectPanel: panel not injected twice (SPA guard via attribute)", async () => {
   const problem = makeApiProblem({ ib_problem_id: 7001, title: "Merge Sort", sbat_id: 300 });
   const { window } = loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
     globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
     fetch: makeFetch(() => ({ ok: true, json: async () => makeProblemsResponse([problem]) })),
     chrome: makeChrome(),
@@ -232,6 +236,7 @@ test("_injectPanel: shows N items when N problems are due today", async () => {
   };
   const chrome = makeChrome({ localStore: { [REVISION_LOG_KEY]: log } });
   const { window } = loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
     globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
     fetch: makeFetch(() => ({ ok: true, json: async () => ({ problems: {} }) })),
     chrome,
@@ -248,6 +253,7 @@ test("_injectPanel: shows empty state when nothing is due", async () => {
   };
   const chrome = makeChrome({ localStore: { [REVISION_LOG_KEY]: log } });
   const { window } = loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
     globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
     fetch: makeFetch(() => ({ ok: true, json: async () => ({ problems: {} }) })),
     chrome,
