@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS = {
   "live-stream-recorder": false,
   "video-downloader": true,
   "calendar-sync": true,
+  "revision-tracker": true,
   "lecture-info": true,
   "instructor-info": true,
   "lecture-summary": true,
@@ -90,6 +91,7 @@ const TOGGLE_MAP = {
   "toggle-calendar-sync": "calendar-sync",
   "toggle-contest-leaderboard": "contest-leaderboard",
   "toggle-spotlight-search": "spotlight-search",
+  "toggle-revision-tracker": "revision-tracker",
 };
 
 // Current settings state
