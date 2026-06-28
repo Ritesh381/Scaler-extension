@@ -1,0 +1,141 @@
+.scaler-revision-panel {
+  margin: 12px 16px 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: inherit;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+  position: relative;
+  z-index: 1;
+}
+
+.srp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.srp-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.srp-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #6b7280;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.srp-toggle:hover {
+  color: #111827;
+}
+
+.srp-body {
+  padding: 8px 14px;
+}
+
+.srp-body.srp-hidden {
+  display: none;
+}
+
+.srp-empty {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 4px 0;
+  padding: 4px 0;
+}
+
+.srp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid #f3f4f6;
+  gap: 8px;
+}
+
+.srp-item:last-child {
+  border-bottom: none;
+}
+
+.srp-item-title {
+  font-size: 12px;
+  color: #1f2937;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.srp-revisit-btn {
+  flex-shrink: 0;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.srp-revisit-btn:hover {
+  background: #1d4ed8;
+}
+
+/* Dark mode — all scaler-theme-active variants */
+html.scaler-theme-active .scaler-revision-panel {
+  background: #1e1e2e;
+  border-color: #333350;
+}
+
+html.scaler-theme-active .srp-header {
+  background: #161622;
+  border-color: #333350;
+}
+
+html.scaler-theme-active .srp-title {
+  color: #e2e8f0;
+}
+
+html.scaler-theme-active .srp-toggle {
+  color: #94a3b8;
+}
+
+html.scaler-theme-active .srp-toggle:hover {
+  color: #e2e8f0;
+}
+
+html.scaler-theme-active .srp-item {
+  border-color: #2a2a3e;
+}
+
+html.scaler-theme-active .srp-item-title {
+  color: #cbd5e1;
+}
+
+html.scaler-theme-active .srp-empty {
+  color: #94a3b8;
+}
+
+html.scaler-theme-active .srp-revisit-btn {
+  background: #3b82f6;
+}
+
+html.scaler-theme-active .srp-revisit-btn:hover {
+  background: #2563eb;
+}
+
+@media print {
+  .scaler-revision-panel { display: none; }
+}

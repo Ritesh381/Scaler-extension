@@ -208,3 +208,53 @@ test("initRevisionTracker: SPA guard — called twice, fetch called once", async
   await window.initRevisionTracker();
   assert.equal(fetchCount, 0, "guard attribute already present → no fetch");
 });
+
+// ─── DOM tests: _injectPanel ──────────────────────────────────
+
+test("_injectPanel: panel not injected twice (SPA guard via attribute)", async () => {
+  const problem = makeApiProblem({ ib_problem_id: 7001, title: "Merge Sort", sbat_id: 300 });
+  const { window } = loadFeature(FEATURE, {
+    globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
+    fetch: makeFetch(() => ({ ok: true, json: async () => makeProblemsResponse([problem]) })),
+    chrome: makeChrome(),
+  });
+  await window.initRevisionTracker();
+  await window.initRevisionTracker(); // second call
+  const panels = window.document.querySelectorAll("[data-revision-injected]");
+  assert.equal(panels.length, 1);
+});
+
+test("_injectPanel: shows N items when N problems are due today", async () => {
+  const now = Date.now();
+  const log = {
+    "1001": makeLogEntry({ nextDue: now - 1000, title: "Two Sum" }),
+    "1002": makeLogEntry({ nextDue: now - 2000, title: "Binary Search" }),
+  };
+  const chrome = makeChrome({ localStore: { [REVISION_LOG_KEY]: log } });
+  const { window } = loadFeature(FEATURE, {
+    globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
+    fetch: makeFetch(() => ({ ok: true, json: async () => ({ problems: {} }) })),
+    chrome,
+  });
+  await window.initRevisionTracker();
+  const btns = window.document.querySelectorAll(".srp-revisit-btn");
+  assert.equal(btns.length, 2);
+});
+
+test("_injectPanel: shows empty state when nothing is due", async () => {
+  const now = Date.now();
+  const log = {
+    "1001": makeLogEntry({ nextDue: now + 86400000 }), // future
+  };
+  const chrome = makeChrome({ localStore: { [REVISION_LOG_KEY]: log } });
+  const { window } = loadFeature(FEATURE, {
+    globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
+    fetch: makeFetch(() => ({ ok: true, json: async () => ({ problems: {} }) })),
+    chrome,
+  });
+  await window.initRevisionTracker();
+  const empty = window.document.querySelector(".srp-empty");
+  assert.ok(empty, "empty state element present");
+  const btns = window.document.querySelectorAll(".srp-revisit-btn");
+  assert.equal(btns.length, 0);
+});

@@ -77,9 +77,94 @@ function _writeLog(log) {
   });
 }
 
-// ─── DOM (implemented in Task 3) ──────────────────────────────
+// ─── DOM ──────────────────────────────────────────────────────
+
+function _escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function _injectPanel(dueProblems) {
-  // stub — full implementation in Task 3
+  const anchor =
+    document.querySelector("main") ||
+    document.body;
+
+  const count = dueProblems.length;
+  const collapsed =
+    typeof sessionStorage !== "undefined" &&
+    sessionStorage.getItem("scalerpp_revision_collapsed") === "true";
+
+  const itemsHtml =
+    count === 0
+      ? '<p class="srp-empty">Nothing due today ✓</p>'
+      : dueProblems
+          .map(
+            (p) =>
+              `<div class="srp-item" data-pid="${_escapeHtml(p.id)}">` +
+              `<span class="srp-item-title">${_escapeHtml(p.title)}</span>` +
+              `<button class="srp-revisit-btn" data-pid="${_escapeHtml(p.id)}" ` +
+              `data-url="${_escapeHtml(p.url)}">Revisit</button></div>`
+          )
+          .join("");
+
+  const panel = document.createElement("div");
+  panel.className = "scaler-revision-panel";
+  panel.setAttribute(PANEL_ATTR, "true");
+  panel.innerHTML =
+    `<div class="srp-header">` +
+    `<span class="srp-title">📚 Revise Today${count > 0 ? ` (${count})` : ""}</span>` +
+    `<button class="srp-toggle" aria-label="Toggle panel">${collapsed ? "+" : "−"}</button>` +
+    `</div>` +
+    `<div class="srp-body${collapsed ? " srp-hidden" : ""}">${itemsHtml}</div>`;
+
+  anchor.prepend(panel);
+
+  panel.querySelector(".srp-toggle").addEventListener("click", () => {
+    const body = panel.querySelector(".srp-body");
+    const isNowCollapsed = body.classList.toggle("srp-hidden");
+    panel.querySelector(".srp-toggle").textContent = isNowCollapsed ? "+" : "−";
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("scalerpp_revision_collapsed", String(isNowCollapsed));
+    }
+  });
+
+  panel.querySelectorAll(".srp-revisit-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const pid = btn.dataset.pid;
+      const url = btn.dataset.url || "https://www.scaler.com/academy";
+      window.open(url, "_blank");
+      try {
+        const log = await _readLog();
+        if (!log[pid]) return;
+        const updated = _advanceStage(log[pid]);
+        if (updated === null) {
+          delete log[pid];
+        } else {
+          log[pid] = updated;
+        }
+        await _writeLog(log);
+
+        const item = panel.querySelector(`.srp-item[data-pid="${pid}"]`);
+        if (item) item.remove();
+
+        const remaining = panel.querySelectorAll(".srp-revisit-btn").length;
+        const titleEl = panel.querySelector(".srp-title");
+        if (titleEl) {
+          titleEl.textContent =
+            `📚 Revise Today${remaining > 0 ? ` (${remaining})` : ""}`;
+        }
+        if (remaining === 0) {
+          const body = panel.querySelector(".srp-body");
+          if (body) body.innerHTML = '<p class="srp-empty">Nothing due today ✓</p>';
+        }
+      } catch (e) {
+        console.warn("[Scaler++ Revision] Failed to update log:", e);
+      }
+    });
+  });
 }
 
 // ─── Main entry point ─────────────────────────────────────────
