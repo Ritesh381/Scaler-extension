@@ -1,8 +1,10 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { loadFeature, makeChrome } = require("./helpers/harness");
+const { loadFeature, makeChrome, makeFetch, tick } = require("./helpers/harness");
 
 const FEATURE = "content/features/revisionTracker.js";
+
+const REVISION_LOG_KEY = "scalerpp_revision_log";
 
 function makeApiProblem(overrides = {}) {
   return {
@@ -111,4 +113,98 @@ test("_advanceStage: returns null after last interval (graduation)", () => {
   const entry = makeLogEntry({ stage: 4, intervals: [1, 3, 7, 14, 30] });
   const result = window._advanceStage(entry);
   assert.equal(result, null);
+});
+
+// ─── Integration tests: initRevisionTracker ───────────────────
+
+function makeProblemsResponse(problems) {
+  const obj = {};
+  problems.forEach((p) => { obj[p.ib_problem_id] = p; });
+  return { problems: obj };
+}
+
+function loadWithChrome(localStore = {}, fetchRouter = null, settingOverride = {}) {
+  const chrome = makeChrome({ localStore });
+  const fetch = fetchRouter
+    ? makeFetch(fetchRouter)
+    : makeFetch(() => ({ ok: false, status: 401 }));
+  return loadFeature(FEATURE, {
+    globals: {
+      isExtensionValid: () => true,
+      currentSettings: { "revision-tracker": true, ...settingOverride },
+    },
+    chrome,
+    fetch,
+  });
+}
+
+test("initRevisionTracker: feature off → fetch never called", async () => {
+  let fetched = false;
+  const { window } = loadFeature(FEATURE, {
+    globals: {
+      isExtensionValid: () => true,
+      currentSettings: { "revision-tracker": false },
+    },
+    fetch: async () => { fetched = true; return { ok: true, json: async () => ({ problems: {} }) }; },
+    chrome: makeChrome(),
+  });
+  await window.initRevisionTracker();
+  assert.equal(fetched, false);
+});
+
+test("initRevisionTracker: API failure → no throw, log unchanged", async () => {
+  const { window, chrome } = loadWithChrome({}, () => ({ ok: false, status: 401 }));
+  await window.initRevisionTracker();
+  // log should remain empty — no write
+  assert.deepEqual(chrome.__local, {});
+});
+
+test("initRevisionTracker: network error → no throw", async () => {
+  const chrome = makeChrome();
+  const { window } = loadFeature(FEATURE, {
+    globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
+    fetch: async () => { throw new Error("Network error"); },
+    chrome,
+  });
+  await assert.doesNotReject(() => window.initRevisionTracker());
+});
+
+test("initRevisionTracker: new solved problem → written to log with stage 0", async () => {
+  const problem = makeApiProblem({ ib_problem_id: 9001, title: "Binary Search", sbat_id: 200 });
+  const { window, chrome } = loadWithChrome(
+    {},
+    () => ({ ok: true, json: async () => makeProblemsResponse([problem]) })
+  );
+  await window.initRevisionTracker();
+  await tick();
+  const log = chrome.__local[REVISION_LOG_KEY];
+  assert.ok(log, "log written");
+  assert.ok(log["9001"], "entry for problem 9001");
+  assert.equal(log["9001"].stage, 0);
+  assert.equal(log["9001"].title, "Binary Search");
+});
+
+test("initRevisionTracker: already-logged problem not overwritten", async () => {
+  const problem = makeApiProblem({ ib_problem_id: 9001 });
+  const existingEntry = makeLogEntry({ stage: 2, nextDue: Date.now() + 7 * 86400000 });
+  const { window, chrome } = loadWithChrome(
+    { [REVISION_LOG_KEY]: { "9001": existingEntry } },
+    () => ({ ok: true, json: async () => makeProblemsResponse([problem]) })
+  );
+  await window.initRevisionTracker();
+  await tick();
+  assert.equal(chrome.__local[REVISION_LOG_KEY]["9001"].stage, 2);
+});
+
+test("initRevisionTracker: SPA guard — called twice, fetch called once", async () => {
+  let fetchCount = 0;
+  const { window } = loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
+    html: `<!DOCTYPE html><html><body><div data-revision-injected="true"></div></body></html>`,
+    globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
+    fetch: async () => { fetchCount++; return { ok: true, json: async () => ({ problems: {} }) }; },
+    chrome: makeChrome(),
+  });
+  await window.initRevisionTracker();
+  assert.equal(fetchCount, 0, "guard attribute already present → no fetch");
 });
