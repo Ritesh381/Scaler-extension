@@ -92,6 +92,31 @@ const TOGGLE_MAP = {
   "toggle-spotlight-search": "spotlight-search",
 };
 
+// Features hard-disabled in code (e.g. the Live Stream Recorder kill switch in
+// liveStreamRecorder.js). Their popup toggles are forced OFF and locked so users
+// can't enable a feature that won't run. Keep in sync with each feature's own
+// FORCE_DISABLED flag — to re-ship a feature, remove it from this set AND flip
+// its in-feature kill switch.
+const FORCE_DISABLED_FEATURES = new Set(["live-stream-recorder"]);
+
+/**
+ * Force every hard-disabled feature's toggle OFF + locked (un-checkable, dimmed).
+ * Called after any code that sets toggle state (load / reset) so it always wins.
+ */
+function lockForceDisabledToggles() {
+  FORCE_DISABLED_FEATURES.forEach((settingKey) => {
+    const toggleId = Object.keys(TOGGLE_MAP).find(
+      (id) => TOGGLE_MAP[id] === settingKey,
+    );
+    const toggle = toggleId && document.getElementById(toggleId);
+    if (!toggle) return;
+    toggle.checked = false;
+    toggle.disabled = true;
+    const row = toggle.closest(".toggle-item");
+    if (row) row.classList.add("toggle-item--locked");
+  });
+}
+
 // Current settings state
 let currentSettings = { ...DEFAULT_SETTINGS };
 
@@ -119,6 +144,9 @@ async function loadSettings() {
     // Update theme selector
     const themeSelect = document.getElementById("theme-select");
     if (themeSelect) themeSelect.value = currentSettings["theme"] || "off";
+
+    // Force-disabled features always win over the saved state.
+    lockForceDisabledToggles();
   } catch (error) {
     console.error("Error loading settings:", error);
   }
@@ -159,6 +187,12 @@ async function handleThemeChange(value) {
 async function handleToggleChange(toggleId, settingKey) {
   const toggle = document.getElementById(toggleId);
   if (!toggle) return;
+
+  // Hard-disabled features can never be enabled from the popup.
+  if (FORCE_DISABLED_FEATURES.has(settingKey)) {
+    toggle.checked = false;
+    return;
+  }
 
   const newValue = toggle.checked;
   currentSettings[settingKey] = newValue;
@@ -290,6 +324,9 @@ async function resetSettings() {
     // Reset theme selector
     const themeSelect = document.getElementById("theme-select");
     if (themeSelect) themeSelect.value = DEFAULT_SETTINGS["theme"];
+
+    // Keep force-disabled features locked off even after a reset.
+    lockForceDisabledToggles();
 
     // Notify content script
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
