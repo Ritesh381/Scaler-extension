@@ -128,4 +128,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     return true;
   }
+
+  // ── Save transcript to backend cache ────────────────────────
+  // Handled here in the service worker so the save completes even
+  // if the transcriptProcessor tab is closed right after the download
+  // triggers (fire-and-forget from a page context would be aborted).
+  if (message.action === "saveTranscriptToCache") {
+    fetch(`${BACKEND_BASE_URL}/api/transcript/save`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345",
+      },
+      body: JSON.stringify({
+        slug: (message.slug || "").trim(),
+        title: (message.title || message.slug || "").trim(),
+        text: (message.text || "").trim(),
+        classId: (message.classId || "").toString().trim(),
+        generatedBy: message.generatedBy || "",
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) console.warn("Scaler++: Backend rejected transcript save:", res.status);
+        else console.log("Scaler++: Transcript saved to cache for key:", message.slug);
+      })
+      .catch((error) => {
+        console.warn("Scaler++: Failed to save transcript to cache:", error.message);
+      });
+
+    // Fire-and-forget — no sendResponse needed.
+  }
 });

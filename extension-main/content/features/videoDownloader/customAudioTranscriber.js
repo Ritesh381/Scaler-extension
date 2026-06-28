@@ -10,6 +10,11 @@ class CustomAudioTranscriber {
     this.apiKey = apiKey.trim();
     this.modelName = modelName ? modelName.trim() : "";
     this.log = logFn || (() => {});
+    // Peak amplitude below this (~ -40 dBFS) is treated as silence. Real
+    // lecture speech peaks far above it; digital silence sits near 0. Whisper
+    // models hallucinate filler ("Thank you.") on silence, so silent audio
+    // must be detected rather than transcribed.
+    this.silencePeakThreshold = 0.01;
   }
 
   // ── Helper: Remove Repetitions ──
@@ -41,35 +46,132 @@ class CustomAudioTranscriber {
     return result.trim();
   }
 
-  // ── Main Entry ──
+  // ── Main Entry (legacy: accepts one combined ArrayBuffer) ──
+  // For large lectures use transcribeFromSegments() instead.
   async transcribe(audioBuffer, onProgress) {
     if (!this.baseUrl) throw new Error("Base URL is required.");
     if (!this.apiKey) throw new Error("API Key is required.");
 
     this.log("Starting parallel transcription process...");
-    
-    // Determine the provider based on URL
-    const isOpenAI = this.baseUrl.includes("openai.com");
-    const isGroq = this.baseUrl.includes("groq.com");
-    const isDeepgram = this.baseUrl.includes("deepgram.com");
-    const isElevenLabs = this.baseUrl.includes("elevenlabs.io");
 
-    // Pre-process raw AAC/TS data: Decode entire stream, resample to 16kHz Mono, and split into safe 10-minute WAV chunks
     const wavBlobs = await this._prepareWavBlobs(audioBuffer);
     if (!wavBlobs || wavBlobs.length === 0) {
       throw new Error("Failed to decode audio into a supported format.");
     }
+    return this._transcribeWavBlobs(wavBlobs, onProgress);
+  }
+
+  // ── Segment-based entry (used for large lectures) ──────────────────────
+  // Accepts an array of per-segment Uint8Arrays (output of downloadSegments).
+  // Combines them in batches of BATCH_SEGMENTS (~30 min of audio each),
+  // decodes each batch independently, then transcribes all WAV blobs.
+  // This avoids ever creating one giant ArrayBuffer that the browser can't
+  // handle for 700+ segment / 3.5-hour lectures.
+  async transcribeFromSegments(audioSegments, onProgress) {
+    if (!this.baseUrl) throw new Error("Base URL is required.");
+    if (!this.apiKey) throw new Error("API Key is required.");
+
+    this.log("Starting parallel transcription process...");
+
+    // ~200 TS segments ≈ 200 × 4s = ~800s ≈ 13 min of audio per batch.
+    // Each batch produces a combined buffer of ~10–30 MB — well within the
+    // browser's Web Audio API limits. Adjust down if memory is still tight.
+    const BATCH_SEGMENTS = 200;
+    const totalSegments = audioSegments.length;
+    const numBatches = Math.ceil(totalSegments / BATCH_SEGMENTS);
+
+    this.log(`Processing ${totalSegments} segments in ${numBatches} batch(es) of up to ${BATCH_SEGMENTS}...`);
+
+    const allWavBlobs = [];
+
+    for (let b = 0; b < numBatches; b++) {
+      const start = b * BATCH_SEGMENTS;
+      const end = Math.min(start + BATCH_SEGMENTS, totalSegments);
+      const batch = audioSegments.slice(start, end);
+
+      this.log(`Decoding batch ${b + 1}/${numBatches} (segments ${start + 1}–${end})...`);
+
+      // Combine this batch into one buffer
+      let totalBytes = 0;
+      for (const seg of batch) totalBytes += seg.byteLength;
+      const combined = new Uint8Array(totalBytes);
+      let off = 0;
+      for (const seg of batch) {
+        combined.set(seg, off);
+        off += seg.byteLength;
+      }
+
+      let batchBlobs;
+      try {
+        batchBlobs = await this._prepareWavBlobs(combined.buffer);
+      } catch (e) {
+        this.log(`⚠ Batch ${b + 1} decode failed (${e.message}). Trying smaller sub-batches...`);
+        // Halve the batch and retry each half independently
+        batchBlobs = [];
+        const half = Math.ceil(batch.length / 2);
+        for (const subBatch of [batch.slice(0, half), batch.slice(half)]) {
+          if (subBatch.length === 0) continue;
+          let sb = 0;
+          for (const seg of subBatch) sb += seg.byteLength;
+          const sub = new Uint8Array(sb);
+          let so = 0;
+          for (const seg of subBatch) { sub.set(seg, so); so += seg.byteLength; }
+          try {
+            const subBlobs = await this._prepareWavBlobs(sub.buffer);
+            if (subBlobs) batchBlobs.push(...subBlobs);
+          } catch (se) {
+            this.log(`⚠ Sub-batch decode also failed: ${se.message}. Skipping.`);
+          }
+        }
+      }
+
+      if (batchBlobs && batchBlobs.length > 0) {
+        allWavBlobs.push(...batchBlobs);
+      }
+    }
+
+    if (allWavBlobs.length === 0) {
+      throw new Error("Failed to decode audio into a supported format.");
+    }
+
+    return this._transcribeWavBlobs(allWavBlobs, onProgress);
+  }
+
+  // ── Shared transcription worker (operates on prepared WAV blobs) ────────
+  async _transcribeWavBlobs(wavBlobs, onProgress) {
+    const isGroq = this.baseUrl.includes("groq.com");
+    const isDeepgram = this.baseUrl.includes("deepgram.com");
+    const isElevenLabs = this.baseUrl.includes("elevenlabs.io");
+
+    if (this._isAllSilent(wavBlobs)) {
+      throw new Error(
+        "Decoded audio is silent — the audio track could not be extracted from the lecture stream. " +
+          "If a cached transcript is available, use \"Download Cached Transcript\"; otherwise try re-downloading.",
+      );
+    }
+
     const totalChunks = wavBlobs.length;
     const transcriptParts = new Array(totalChunks);
 
     let nextChunkIndex = 0;
     let completedCount = 0;
     let hasFailures = false;
+    let silentChunks = 0;
 
     const worker = async () => {
       while (nextChunkIndex < totalChunks) {
         const i = nextChunkIndex++;
-        const blob = wavBlobs[i];
+        const { blob, peak } = wavBlobs[i];
+
+        if (peak < this.silencePeakThreshold) {
+          transcriptParts[i] = "";
+          silentChunks++;
+          completedCount++;
+          const pctSilent = ((completedCount / totalChunks) * 100).toFixed(1);
+          if (onProgress) onProgress(parseFloat(pctSilent), completedCount, totalChunks);
+          this.log(`Chunk ${i + 1} skipped (silent). Progress: ${completedCount}/${totalChunks} completed (${pctSilent}%)`);
+          continue;
+        }
 
         let text = "";
         const MAX_RETRIES = 3;
@@ -81,16 +183,14 @@ class CustomAudioTranscriber {
             } else if (isElevenLabs) {
               text = await this._transcribeElevenLabs(blob);
             } else {
-              // Default to OpenAI compatible (Groq, OpenAI, Custom)
               const model = this.modelName || (isGroq ? "whisper-large-v3" : "whisper-1");
               text = await this._transcribeOpenAICompatible(blob, model);
             }
-            break; // Success! Break retry loop.
+            break;
           } catch (err) {
             const is429 = /\b429\b/.test(err.message);
             this.log(`❌ Chunk ${i + 1} attempt ${retry + 1} failed: ${err.message}`);
             if (retry < MAX_RETRIES - 1) {
-              // 429 rate-limit: wait 60s on first retry, 240s (4 min) on second
               const backoffTime = is429
                 ? (retry === 0 ? 60_000 : 240_000)
                 : 2000 * (retry + 1);
@@ -110,7 +210,7 @@ class CustomAudioTranscriber {
         if (text) {
           transcriptParts[i] = text.trim();
         } else {
-          transcriptParts[i] = ""; // Keep place in array even if chunk completely failed
+          transcriptParts[i] = "";
           hasFailures = true;
         }
 
@@ -121,48 +221,80 @@ class CustomAudioTranscriber {
       }
     };
 
-    // Spawn up to 5 concurrent workers
     const concurrency = Math.min(5, totalChunks);
     this.log(`Spawning ${concurrency} parallel worker(s) for transcription...`);
     const workers = [];
-    for (let w = 0; w < concurrency; w++) {
-      workers.push(worker());
-    }
-
+    for (let w = 0; w < concurrency; w++) workers.push(worker());
     await Promise.all(workers);
 
-    // Join all non-empty results maintaining index-based chronological order
+    if (silentChunks > 0) {
+      this.log(`⚠ ${silentChunks}/${totalChunks} chunk(s) were silent and skipped.`);
+    }
+
     let fullText = transcriptParts.filter((p) => p && p.length > 0).join(" ");
     return {
       text: this._removeRepetitions(fullText),
-      hasFailures: hasFailures
+      hasFailures: hasFailures,
+      silentChunks: silentChunks,
     };
   }
 
   /**
-   * Decodes the ENTIRE raw AAC/TS audio buffer at once.
-   * Resamples it to 16kHz Mono (highly compatible, small footprint).
-   * Splits the uncompressed PCM data into 10-minute chunks.
-   * Converts each chunk to a pristine WAV Blob (guaranteed <25MB).
+   * Decodes raw AAC/ADTS audio in bounded-size chunks (never the full lecture at once).
+   * Each chunk is resampled to 16kHz mono and split into WAV blobs (<25MB each).
    */
   async _prepareWavBlobs(rawAudioBuffer) {
-    this.log("Decoding complete raw audio stream...");
-    
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    let decodedBuffer;
     try {
-      // Decode the massive raw AAC/ADTS audio bytes at once
-      decodedBuffer = await audioCtx.decodeAudioData(rawAudioBuffer.slice(0));
-    } catch (e) {
-      this.log(`⚠ Web Audio decode failed: ${e.message}`);
-      this.log("Fallback: Attempting chunked ADTS decode to WAV...");
-      const fallbackBlobs = await this._decodeAdtsInChunks(rawAudioBuffer, audioCtx);
+      const frames = this._extractAdtsFrames(new Uint8Array(rawAudioBuffer));
+      if (frames.length > 0) {
+        this.log(`Decoding audio in ADTS chunks (${frames.length} frames)...`);
+        return await this._decodeAdtsInChunks(rawAudioBuffer, audioCtx);
+      }
+
+      // Non-ADTS fallback (e.g. MP3): only safe for small buffers — never a full lecture.
+      const SMALL_BUFFER_MAX_BYTES = 8 * 1024 * 1024;
+      if (rawAudioBuffer.byteLength <= SMALL_BUFFER_MAX_BYTES) {
+        this.log("No ADTS frames — decoding small non-ADTS buffer directly...");
+        const decodedBuffer = await audioCtx.decodeAudioData(rawAudioBuffer.slice(0));
+        return await this._resampleToWavBlobs(decodedBuffer);
+      }
+
+      this.log("⚠ No ADTS frames in large buffer — refusing full-buffer decode.");
+      return [];
+    } finally {
       if (audioCtx.close) await audioCtx.close();
-      return fallbackBlobs;
     }
-    const wavBlobs = await this._resampleToWavBlobs(decodedBuffer);
+    let wavBlobs = await this._resampleToWavBlobs(decodedBuffer);
+
+    // The monolithic decodeAudioData() call can silently mis-handle a large
+    // concatenated ADTS stream and emit silence. If that happened, retry via
+    // the per-frame chunked decode, which is more tolerant of irregularities.
+    if (this._isAllSilent(wavBlobs)) {
+      this.log("⚠ Whole-stream decode produced silent audio. Retrying with chunked ADTS decode...");
+      const fallbackBlobs = await this._decodeAdtsInChunks(rawAudioBuffer, audioCtx);
+      if (fallbackBlobs && fallbackBlobs.length > 0 && !this._isAllSilent(fallbackBlobs)) {
+        this.log("✅ Chunked ADTS decode recovered audible audio.");
+        wavBlobs = fallbackBlobs;
+      }
+    }
+
     if (audioCtx.close) await audioCtx.close();
     return wavBlobs;
+  }
+
+  /**
+   * Returns true when every WAV chunk's peak amplitude is below the silence
+   * threshold (i.e. the decoded audio carries no usable speech).
+   */
+  _isAllSilent(wavBlobs) {
+    if (!wavBlobs || wavBlobs.length === 0) return false;
+    let maxPeak = 0;
+    for (const w of wavBlobs) {
+      if (w.peak > maxPeak) maxPeak = w.peak;
+    }
+    this.log(`Peak audio amplitude: ${maxPeak.toFixed(4)} (silence threshold: ${this.silencePeakThreshold})`);
+    return maxPeak < this.silencePeakThreshold;
   }
 
   async _resampleToWavBlobs(decodedBuffer) {
@@ -191,8 +323,17 @@ class CustomAudioTranscriber {
     for (let i = 0; i < totalChunks; i++) {
       const startSample = i * samplesPerChunk;
       const endSample = Math.min(startSample + samplesPerChunk, totalSamples);
-      const wavArrayBuffer = this._rawPcmToWav(channelData.subarray(startSample, endSample), TARGET_SAMPLE_RATE);
-      wavBlobs.push(new Blob([wavArrayBuffer], { type: "audio/wav" }));
+      const slice = channelData.subarray(startSample, endSample);
+
+      // Track peak amplitude so silent chunks can be detected downstream.
+      let peak = 0;
+      for (let s = 0; s < slice.length; s++) {
+        const abs = slice[s] < 0 ? -slice[s] : slice[s];
+        if (abs > peak) peak = abs;
+      }
+
+      const wavArrayBuffer = this._rawPcmToWav(slice, TARGET_SAMPLE_RATE);
+      wavBlobs.push({ blob: new Blob([wavArrayBuffer], { type: "audio/wav" }), peak });
     }
 
     return wavBlobs;
@@ -209,11 +350,13 @@ class CustomAudioTranscriber {
     const chunkBuffers = this._buildAdtsChunks(frames, MAX_CHUNK_BYTES);
     const wavBlobs = [];
 
+    this.log(`Processing ${chunkBuffers.length} ADTS chunk(s) (max ${MAX_CHUNK_BYTES / 1024 / 1024} MB each)...`);
+
     for (let i = 0; i < chunkBuffers.length; i++) {
       try {
         const decoded = await audioCtx.decodeAudioData(chunkBuffers[i].slice(0));
         const chunkWavs = await this._resampleToWavBlobs(decoded);
-        for (const blob of chunkWavs) wavBlobs.push(blob);
+        for (const item of chunkWavs) wavBlobs.push(item);
       } catch (e) {
         this.log(`⚠ Chunked decode failed for part ${i + 1}: ${e.message}`);
       }

@@ -52,39 +52,25 @@ async function checkTranscriptCache(key) {
 
 /**
  * Save a generated transcript to the backend cache.
+ * Delegates to the background service worker so the request survives
+ * even if this page (transcriptProcessor tab) is closed immediately
+ * after the transcript file download begins.
  * Fire-and-forget — never throws.
  */
-async function saveTranscriptToCache(key, title, text, classId) {
+function saveTranscriptToCache(key, title, text, classId, generatedBy) {
   if (!key || !text) return;
   try {
-    // Best-effort: tag the save with the generating user's email (metadata).
-    const generatedBy = await new Promise((resolve) => {
-      try {
-        chrome.storage.sync.get(["scaler_user"], (r) =>
-          resolve(r?.scaler_user?.email || ""),
-        );
-      } catch (e) {
-        resolve("");
-      }
+    chrome.runtime.sendMessage({
+      action: "saveTranscriptToCache",
+      slug: key.trim(),
+      title: (title || key).trim(),
+      text: text.trim(),
+      classId: classId ? String(classId).trim() : "",
+      generatedBy: generatedBy || "",
     });
-
-    await fetch(`${BACKEND_BASE_URL}/api/transcript/save`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${EXTENSION_TOKEN}`,
-      },
-      body: JSON.stringify({
-        slug: key.trim(),
-        title: (title || key).trim(),
-        text: text.trim(),
-        classId: classId ? String(classId).trim() : "",
-        generatedBy,
-      }),
-    });
-    console.log("[Scaler++] Transcript saved to cache for key:", key);
+    console.log("[Scaler++] Transcript save dispatched to background for key:", key);
   } catch (e) {
-    console.warn("[Scaler++] Failed to save transcript to cache:", e.message);
+    console.warn("[Scaler++] Failed to dispatch transcript save:", e.message);
   }
 }
 
@@ -579,12 +565,15 @@ async function fetchChunk(url, index) {
   return null;
 }
 
-async function downloadToMemory(segments, audioExtractor) {
+// downloadSegments returns the raw per-segment audio Uint8Arrays in order.
+// For small lectures these are combined later; for large ones the transcriber
+// processes them in batches so the browser never chokes on one giant buffer.
+async function downloadSegments(segments, audioExtractor) {
   const total = segments.length;
   let nextToFetch = 0;
   let nextToWrite = 0;
   const buffer = new Map();
-  const audioChunks = [];
+  const audioSegments = []; // one Uint8Array per TS segment
 
   function updateUI(written) {
     const pct = ((written / total) * 100).toFixed(1);
@@ -597,7 +586,8 @@ async function downloadToMemory(segments, audioExtractor) {
     while (buffer.has(nextToWrite)) {
       const data = buffer.get(nextToWrite);
       buffer.delete(nextToWrite);
-      if (data && data.byteLength > 0) audioChunks.push(data);
+      // Keep even empty Uint8Arrays so indices stay aligned
+      audioSegments.push(data && data.byteLength > 0 ? data : new Uint8Array(0));
       nextToWrite++;
       updateUI(nextToWrite);
     }
@@ -608,7 +598,7 @@ async function downloadToMemory(segments, audioExtractor) {
       const idx = nextToFetch++;
       if (idx >= total) break;
       const raw = await fetchChunk(segments[idx], idx);
-      let processed = raw ? audioExtractor.extract(raw) : new Uint8Array(0);
+      const processed = raw ? audioExtractor.extract(raw) : new Uint8Array(0);
       buffer.set(idx, processed);
       flush();
     }
@@ -620,19 +610,7 @@ async function downloadToMemory(segments, audioExtractor) {
   await Promise.all(workers);
   flush();
 
-  let totalBytes = 0;
-  for (const chunk of audioChunks) totalBytes += chunk.byteLength;
-  const combined = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of audioChunks) {
-    combined.set(
-      chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk),
-      offset,
-    );
-    offset += chunk.byteLength;
-  }
-
-  return combined.buffer;
+  return audioSegments;
 }
 
 function getSuggestedName(ext) {
@@ -698,7 +676,10 @@ startBtn.addEventListener("click", async () => {
     if (segments.length === 0) throw new Error("0 segments found.");
 
     const audioExtractor = new TSAudioExtractor();
-    const audioBuffer = await downloadToMemory(segments, audioExtractor);
+    // Download all segments as individual buffers (not one combined blob).
+    // This prevents the browser from choking on a single massive ArrayBuffer
+    // for long lectures (700+ segments / 3.5 hrs).
+    const audioSegments = await downloadSegments(segments, audioExtractor);
 
     progressBar.style.width = "0%";
     chunksText.innerText = "—";
@@ -714,8 +695,8 @@ startBtn.addEventListener("click", async () => {
     );
 
     const startTime = Date.now();
-    const transcribeResult = await transcriber.transcribe(
-      audioBuffer,
+    const transcribeResult = await transcriber.transcribeFromSegments(
+      audioSegments,
       (pct, current, total) => {
         progressBar.style.width = pct.toFixed(1) + "%";
         chunksText.innerText = `${current} / ${total} segments`;
@@ -761,11 +742,16 @@ startBtn.addEventListener("click", async () => {
     progressBar.style.width = "100%";
     progressBar.style.background = "#10b981";
 
-    // ── Save to backend cache (fire-and-forget) ───────────────
+    // ── Save to backend cache via background worker (fire-and-forget) ─────
     if (cacheKey) {
       if (!hasFailures) {
         log("Saving transcript to cache for future use...");
-        saveTranscriptToCache(cacheKey, videoTitle, transcript, classId);
+        // Resolve the user email first (sync storage is fast), then hand off
+        // to the service worker which outlives this page context.
+        chrome.storage.sync.get(["scaler_user"], (r) => {
+          const generatedBy = r?.scaler_user?.email || "";
+          saveTranscriptToCache(cacheKey, videoTitle, transcript, classId, generatedBy);
+        });
       } else {
         log("Skipping cache save: Some chunks failed to transcribe.");
       }
