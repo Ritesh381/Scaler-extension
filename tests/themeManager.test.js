@@ -126,6 +126,44 @@ test("natively-dark widgets are flagged so the invert doesn't whiten them", () =
   );
 });
 
+test("a dark-theme Monaco editor is counter-inverted by CLASS (no scan needed)", () => {
+  // Regression: a vs-dark editor used to render WHITE because the runtime
+  // luminance scan misses it (Monaco paints its #1e1e1e background AFTER the
+  // element mounts, and a light→dark theme swap mutates only classes — the
+  // childList observer never re-scans). The static .vs-dark counter rule must
+  // keep it dark regardless of whether neutralizeDarkRegions ever ran.
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("dark");
+  const css = window.document.getElementById(STYLE_ID).textContent;
+
+  // Dark variants are counter-inverted (un-inverted + darkened) by class.
+  assert.match(
+    css,
+    /\.monaco-editor\.vs-dark[\s\S]*?filter:\s*invert\(1\)\s*hue-rotate\(180deg\)\s*brightness/,
+    "vs-dark editor counter-inverted statically",
+  );
+  assert.match(css, /\.monaco-editor\.hc-black/, "hc-black variant covered");
+  assert.match(css, /\.monaco-editor\.hc-dark/, "hc-dark variant covered");
+
+  // The BARE .monaco-editor must NOT be countered — a LIGHT (vs) editor is
+  // white and must invert to dark like the rest of the page (bfb9b69 fix).
+  const withoutDarkVariants = css.replace(
+    /\.monaco-editor\.(vs-dark|hc-black|hc-dark)/g,
+    "",
+  );
+  assert.ok(
+    !/(^|[,\s])\.monaco-editor(?![.\w-])/.test(withoutDarkVariants),
+    "bare .monaco-editor is never statically countered (light editors still invert)",
+  );
+
+  // Media inside a dark editor must be un-inverted so it isn't double-flipped.
+  assert.match(
+    css,
+    /\.monaco-editor\.vs-dark img/,
+    "media inside a dark editor is exempted from re-inversion",
+  );
+});
+
 test("a natively-dark page is left native (no invert applied)", () => {
   // body has its own dark background → the whole page is already dark.
   const html = `<!DOCTYPE html><html><body style="background-color: rgb(14, 14, 18)">

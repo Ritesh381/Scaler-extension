@@ -47,6 +47,28 @@ const SCALER_THEME_REGION_COUNTER =
 const SCALER_NO_INVERT_CLASS = "scaler-no-invert";
 const SCALER_DARK_ATTR = "data-scaler-dark-region";
 
+// Monaco editors carry an UNAMBIGUOUS theme class — `vs-dark` / `hc-black` /
+// `hc-dark` for dark themes, `vs` / `hc-light` for light — so we can counter-
+// invert the dark ones STATICALLY, by class, the instant Monaco applies the
+// theme. This is what makes a dark editor reliably stay dark.
+//
+// The pure runtime luminance scan (neutralizeDarkRegions) is not enough on its
+// own for editors: it flags a region only when it happens to scan it AND the
+// background color is already painted. Monaco fails both — its background is
+// injected by a generated stylesheet slightly AFTER the element mounts, and a
+// user switching the editor's theme light→dark mutates only CLASSES (no nodes
+// added), so the childList observer never re-scans it. The result was a dark
+// editor that the root invert flipped to white (#1e1e1e → #e1e1e1).
+//
+// We deliberately match ONLY the dark modifier, never the bare `.monaco-editor`:
+// a LIGHT (`vs`) editor is white and must invert to dark like the rest of the
+// page — countering it would leave it white (the regression fixed in bfb9b69).
+// On Scaler the editor's containers are all light/transparent (`.layout__content`
+// is #fff, etc.), so the `.monaco-editor.vs-dark` node is the OUTERMOST dark
+// element — there is no counter-inverted ancestor for this to compound with.
+const SCALER_DARK_EDITOR_SELECTOR =
+  ".monaco-editor.vs-dark, .monaco-editor.hc-black, .monaco-editor.hc-dark";
+
 // Candidate containers scanned for being natively dark. Scaler renders whole
 // sections dark by default (the lecture player + its top bar / chat sidebar /
 // notice board / icon rail, code editors, terminals, etc.). Inverting those
@@ -257,6 +279,30 @@ function buildAccentCss(id, accent) {
 function buildThemeCss(theme, fontUrl) {
   if (!theme || !theme.filter) return "";
   const r = SCALER_THEME_ROOT_CLASS;
+
+  // Everything that must be UN-inverted (counter-inverted) to stay dark:
+  // runtime-flagged regions PLUS Monaco's dark theme variants (matched
+  // statically by class). Built from one list so the counter rule and the
+  // "media inside a region" rule below can never drift out of sync.
+  const keepDarkSelectors = [
+    `.${SCALER_NO_INVERT_CLASS}`,
+    ...SCALER_DARK_EDITOR_SELECTOR.split(",").map((s) => s.trim()),
+  ];
+  const keepDarkRule = keepDarkSelectors
+    .map((s) => `html.${r} ${s}`)
+    .join(",\n    ");
+  const mediaTags = [
+    "img",
+    "video",
+    "canvas",
+    "iframe",
+    "svg image",
+    '[style*="background-image"]',
+  ];
+  const keepDarkMediaRule = keepDarkSelectors
+    .flatMap((s) => mediaTags.map((m) => `html.${r} ${s} ${m}`))
+    .join(",\n    ");
+
   let css = `
     html.${r} {
       filter: ${theme.filter} !important;
@@ -287,28 +333,24 @@ function buildThemeCss(theme, fontUrl) {
       filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
     }
 
-    /* Natively-dark regions (code editors, players, dark panels) are flagged at
-       runtime with .${SCALER_NO_INVERT_CLASS} — ONLY when their background is
-       actually dark (luminance-checked). Un-invert AND darken so they blend
-       with the inverted near-black page.
-
-       NOTE: we deliberately do NOT statically counter editor classes
-       (.monaco-editor etc.). An editor on a LIGHT theme is white, and blindly
-       countering it would leave it white in dark mode. The luminance check
-       handles both: a light editor just inverts to dark; a dark editor is
-       flagged and countered. */
-    html.${r} .${SCALER_NO_INVERT_CLASS} {
+    /* Natively-dark regions: un-invert AND darken so they blend with the
+       inverted near-black page instead of standing out as lighter panels.
+       Two sources, both kept dark by the SAME counter:
+         • .${SCALER_NO_INVERT_CLASS} — flagged at runtime by the luminance scan
+           ONLY when a region's background is actually dark. Handles dark output
+           panels, terminals, drawers, non-Monaco editors, etc.
+         • Monaco's dark theme variants (.monaco-editor.vs-dark / .hc-black /
+           .hc-dark) — matched statically by class so a dark editor stays dark
+           the instant Monaco themes it, with no dependency on the scan having
+           run (see SCALER_DARK_EDITOR_SELECTOR). A LIGHT (vs) editor is NOT
+           matched and simply inverts to dark like the rest of the page. */
+    ${keepDarkRule} {
       filter: ${SCALER_THEME_REGION_COUNTER} !important;
     }
 
     /* A counter-inverted region is already back to normal orientation, so media
        inside it must NOT be inverted again (that would double-flip it). */
-    html.${r} .${SCALER_NO_INVERT_CLASS} img,
-    html.${r} .${SCALER_NO_INVERT_CLASS} video,
-    html.${r} .${SCALER_NO_INVERT_CLASS} canvas,
-    html.${r} .${SCALER_NO_INVERT_CLASS} iframe,
-    html.${r} .${SCALER_NO_INVERT_CLASS} svg image,
-    html.${r} .${SCALER_NO_INVERT_CLASS} [style*="background-image"] {
+    ${keepDarkMediaRule} {
       filter: none !important;
     }
 
@@ -429,6 +471,12 @@ function neutralizeDarkRegions(scope) {
     if (el.id === "scaler-spotlight-overlay" || el.closest("#scaler-spotlight-overlay")) {
       return;
     }
+    // A dark Monaco editor (and its whole subtree) is kept dark by the static
+    // .vs-dark/.hc-* counter rule (see SCALER_DARK_EDITOR_SELECTOR). The scan
+    // must not also flag any element inside it — a second counter on an inner
+    // dark element (the text surface, gutter) would double-flip it back to
+    // light. So the static rule owns dark editors; the scan owns everything else.
+    if (el.closest(SCALER_DARK_EDITOR_SELECTOR)) return;
     // Skip tiny elements (icons, dividers) — only flag real regions. Only
     // applies when layout is available (offset* are 0 under jsdom / no layout).
     const w = el.offsetWidth;
