@@ -52,6 +52,9 @@ const DEFAULT_SETTINGS = {
 
   // Spotlight Search
   "spotlight-search": true,
+
+  // Appearance — site-wide theme ("off" = native Scaler look)
+  theme: "off",
 };
 
 // All toggle IDs mapped to their setting keys
@@ -112,8 +115,41 @@ async function loadSettings() {
     // Update days input
     const daysInput = document.getElementById("practice-mode-days");
     if (daysInput) daysInput.value = currentSettings["practice-mode-days"] || 7;
+
+    // Update theme selector
+    const themeSelect = document.getElementById("theme-select");
+    if (themeSelect) themeSelect.value = currentSettings["theme"] || "off";
   } catch (error) {
     console.error("Error loading settings:", error);
+  }
+}
+
+/**
+ * Handle theme dropdown change - INSTANT APPLY.
+ * Theme is a multi-value <select> (not a boolean toggle), so it has its own
+ * handler instead of living in TOGGLE_MAP.
+ */
+async function handleThemeChange(value) {
+  currentSettings["theme"] = value;
+  try {
+    await chrome.storage.sync.set({ cleanerSettings: currentSettings });
+
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs[0]?.id) {
+      try {
+        await chrome.tabs.sendMessage(tabs[0].id, {
+          action: "toggleSetting",
+          key: "theme",
+          value,
+        });
+      } catch (e) {
+        // Content script not loaded on this page — fine.
+      }
+    }
+    showToast(value === "off" ? "Theme off ✓" : "Theme applied ✓", "success");
+  } catch (error) {
+    console.error("Error saving theme:", error);
+    showToast("Error saving", "error");
   }
 }
 
@@ -251,6 +287,10 @@ async function resetSettings() {
       }
     });
 
+    // Reset theme selector
+    const themeSelect = document.getElementById("theme-select");
+    if (themeSelect) themeSelect.value = DEFAULT_SETTINGS["theme"];
+
     // Notify content script
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
@@ -354,6 +394,14 @@ document.addEventListener("DOMContentLoaded", () => {
       chrome.tabs.create({
         url: "https://github.com/Ritesh381/Scaler-extension",
       });
+    });
+  }
+
+  // Theme selector change handler
+  const themeSelect = document.getElementById("theme-select");
+  if (themeSelect) {
+    themeSelect.addEventListener("change", () => {
+      handleThemeChange(themeSelect.value);
     });
   }
 
