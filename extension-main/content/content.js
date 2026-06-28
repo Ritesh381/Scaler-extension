@@ -117,6 +117,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!value && typeof closeSpotlight === "function") {
         closeSpotlight();
       }
+    } else if (key === "video-end-time") {
+      if (value) {
+        if (typeof initVideoEndTime === "function") initVideoEndTime();
+      } else {
+        removeEndTimeOverlay();
+      }
+    } else if (key === "video-end-time-speed") {
+      // Changing speed toggle requires re-injection
+      removeEndTimeOverlay();
+      if (value && currentSettings["video-end-time"]) {
+        if (typeof initVideoEndTime === "function") initVideoEndTime();
+      }
     } else if (key === "theme") {
       // Site-wide theme switch — value is a theme id ("off", "dark", ...)
       if (typeof applyTheme === "function") applyTheme(value);
@@ -235,6 +247,13 @@ window.addEventListener("load", async () => {
 
   // Initialize Spotlight Search (Ctrl+Space)
   if (typeof initSpotlightSearch === "function") initSpotlightSearch();
+
+  // Initialize Video End Time on session/recording pages
+  setTimeout(() => {
+    if (currentSettings && currentSettings["video-end-time"] && typeof initVideoEndTime === "function") {
+      initVideoEndTime();
+    }
+  }, 2000);
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -305,4 +324,11 @@ handleUrlChange = function () {
 
   // Re-initialize Problem Picker on dashboard
   setTimeout(initProblemPicker, 1500);
+
+  // Re-initialize Video End Time on session/recording pages after navigation
+  setTimeout(() => {
+    if (currentSettings && currentSettings["video-end-time"] && typeof initVideoEndTime === "function") {
+      initVideoEndTime();
+    }
+  }, 2000);
 };

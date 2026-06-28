@@ -53,6 +53,10 @@ const DEFAULT_SETTINGS = {
   // Spotlight Search
   "spotlight-search": true,
 
+  // Video End Time
+  "video-end-time": true,
+  "video-end-time-speed": true,
+
   // Appearance — site-wide theme ("off" = native Scaler look)
   theme: "off",
 };
@@ -90,6 +94,8 @@ const TOGGLE_MAP = {
   "toggle-calendar-sync": "calendar-sync",
   "toggle-contest-leaderboard": "contest-leaderboard",
   "toggle-spotlight-search": "spotlight-search",
+  "toggle-video-end-time": "video-end-time",
+  "toggle-video-end-time-speed": "video-end-time-speed",
 };
 
 // Current settings state
@@ -230,6 +236,7 @@ async function handleToggleChange(toggleId, settingKey) {
       "video-downloader",
       "contest-leaderboard",
       "spotlight-search",
+      "video-end-time",
     ].includes(settingKey);
     if (isEnhancement) {
       showToast(newValue ? "Enabled ✓" : "Disabled ✓", "success");
@@ -259,6 +266,7 @@ function _syncSubOptions(settingKey, visible) {
   const panelIds = {
     "practice-mode": "practice-mode-options",
     "calendar-sync": "calendar-sync-options",
+    "video-end-time": "video-end-time-options",
   };
 
   const panelId = panelIds[settingKey];
