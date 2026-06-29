@@ -177,7 +177,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const sPanel = document.getElementById('scaler-summary-panel'); if (sPanel) sPanel.remove();
       }
     } else if (key === "revision-tracker") {
-      if (value && typeof initRevisionTracker === "function") initRevisionTracker();
+      if (value && typeof initRevisionMarker === "function") initRevisionMarker();
     } else {
       updateVisibilityForKey(key, value);
     }
@@ -238,16 +238,12 @@ window.addEventListener("load", async () => {
   // Initialize Spotlight Search (Ctrl+Space)
   if (typeof initSpotlightSearch === "function") initSpotlightSearch();
 
-  // Initialize Smart Revision tracker on dashboard pages
+  // Initialize Smart Revision marker button on problem pages
   setTimeout(() => {
-    if (
-      currentSettings &&
-      currentSettings["revision-tracker"] &&
-      typeof initRevisionTracker === "function"
-    ) {
-      initRevisionTracker();
+    if (currentSettings?.["revision-tracker"] && typeof initRevisionMarker === "function") {
+      initRevisionMarker();
     }
-  }, 2500);
+  }, 2000);
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -319,14 +315,10 @@ handleUrlChange = function () {
   // Re-initialize Problem Picker on dashboard
   setTimeout(initProblemPicker, 1500);
 
-  // Re-render revision panel on SPA navigation
+  // Re-inject revision marker button on SPA navigation to problem pages
   setTimeout(() => {
-    if (
-      currentSettings &&
-      currentSettings["revision-tracker"] &&
-      typeof initRevisionTracker === "function"
-    ) {
-      initRevisionTracker();
+    if (currentSettings?.["revision-tracker"] && typeof initRevisionMarker === "function") {
+      initRevisionMarker();
     }
-  }, 2500);
+  }, 2000);
 };

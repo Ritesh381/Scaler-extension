@@ -139,3 +139,32 @@ html.scaler-theme-active .srp-revisit-btn:hover {
 @media print {
   .scaler-revision-panel { display: none; }
 }
+
+/* ── Mark for Revision button (injected on problem pages) ── */
+.scaler-revision-marker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  padding: 3px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1.5px solid #5865f2;
+  border-radius: 6px;
+  background: transparent;
+  color: #5865f2;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.scaler-revision-marker-btn:hover:not(:disabled) {
+  background: #5865f2;
+  color: #fff;
+}
+.scaler-revision-marker-btn:disabled {
+  border-color: #10b981;
+  color: #10b981;
+  cursor: default;
+  opacity: 0.9;
+}

@@ -80,6 +80,7 @@
         "content/features/liveStreamRecorder/liveStreamRecorder.js",
         "content/features/themeManager.js",
         "content/features/revisionTracker.js",
+        "content/features/revisionMarker.js",
         "content/content.js"
       ],
       "css": [
