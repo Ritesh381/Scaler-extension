@@ -5,6 +5,7 @@ const { loadFeature, makeChrome, makeFetch, tick } = require("./helpers/harness"
 const FEATURE = "content/features/revisionTracker.js";
 
 const REVISION_LOG_KEY = "scalerpp_revision_log";
+const REVISION_SEEDED_KEY = "scalerpp_revision_seeded";
 
 function makeApiProblem(overrides = {}) {
   return {
@@ -39,6 +40,8 @@ function load() {
   });
 }
 
+// ─── _detectNewSolves ─────────────────────────────────────────
+
 test("_detectNewSolves: solved problem absent from log → detected", () => {
   const { window } = load();
   const problems = [makeApiProblem()];
@@ -56,12 +59,28 @@ test("_detectNewSolves: already in log → not detected", () => {
   assert.equal(result.length, 0);
 });
 
-test("_detectNewSolves: unsolved problem → not detected", () => {
+test("_detectNewSolves: unsolved status → not detected", () => {
   const { window } = load();
   const problems = [makeApiProblem({ status: "unsolved" })];
   const result = window._detectNewSolves(problems, {});
   assert.equal(result.length, 0);
 });
+
+test("_detectNewSolves: null status → not detected", () => {
+  const { window } = load();
+  const problems = [makeApiProblem({ status: null })];
+  const result = window._detectNewSolves(problems, {});
+  assert.equal(result.length, 0);
+});
+
+test("_detectNewSolves: non-standard solved status (e.g. completed) → detected", () => {
+  const { window } = load();
+  const problems = [makeApiProblem({ status: "completed" })];
+  const result = window._detectNewSolves(problems, {});
+  assert.equal(result.length, 1);
+});
+
+// ─── _buildEntry ──────────────────────────────────────────────
 
 test("_buildEntry: builds correct entry with stage 0 and nextDue 1 day out", () => {
   const { window } = load();
@@ -76,12 +95,22 @@ test("_buildEntry: builds correct entry with stage 0 and nextDue 1 day out", () 
   assert.deepEqual(Array.from(entry.intervals), [1, 3, 7, 14, 30]);
 });
 
+test("_buildEntry: accepts custom nextDue for backfill", () => {
+  const { window } = load();
+  const customDue = Date.now() - 1;
+  const entry = window._buildEntry(makeApiProblem(), customDue);
+  assert.equal(entry.nextDue, customDue);
+  assert.equal(entry.stage, 0);
+});
+
 test("_buildEntry: homework type uses 'homework' in URL", () => {
   const { window } = load();
   const entry = window._buildEntry(makeApiProblem({ type: "homework", ib_problem_id: 2002, sbat_id: 600 }));
   assert.ok(entry.url.includes("homework"));
   assert.ok(entry.url.includes("2002"));
 });
+
+// ─── _getDueToday ─────────────────────────────────────────────
 
 test("_getDueToday: overdue entry included", () => {
   const { window } = load();
@@ -97,6 +126,8 @@ test("_getDueToday: future entry excluded", () => {
   const due = window._getDueToday(log);
   assert.equal(due.length, 0);
 });
+
+// ─── _advanceStage ────────────────────────────────────────────
 
 test("_advanceStage: increments stage and recalculates nextDue", () => {
   const { window } = load();
@@ -157,8 +188,7 @@ test("initRevisionTracker: feature off → fetch never called", async () => {
 test("initRevisionTracker: API failure → no throw, log unchanged", async () => {
   const { window, chrome } = loadWithChrome({}, () => ({ ok: false, status: 401 }));
   await window.initRevisionTracker();
-  // log should remain empty — no write
-  assert.deepEqual(chrome.__local, {});
+  assert.equal(chrome.__local[REVISION_LOG_KEY], undefined);
 });
 
 test("initRevisionTracker: network error → no throw", async () => {
@@ -199,22 +229,65 @@ test("initRevisionTracker: already-logged problem not overwritten", async () => 
   assert.equal(chrome.__local[REVISION_LOG_KEY]["9001"].stage, 2);
 });
 
-test("initRevisionTracker: SPA guard — called twice, fetch called once", async () => {
+test("initRevisionTracker: SPA guard (URL-based) — called twice same URL, fetch called once", async () => {
   let fetchCount = 0;
+  const chrome = makeChrome();
   const { window } = loadFeature(FEATURE, {
     url: "https://www.scaler.com/academy/mentee-dashboard/todos",
-    html: `<!DOCTYPE html><html><body><div data-revision-injected="true"></div></body></html>`,
     globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
     fetch: async () => { fetchCount++; return { ok: true, json: async () => ({ problems: {} }) }; },
-    chrome: makeChrome(),
+    chrome,
+  });
+  await window.initRevisionTracker(); // first call: fetches and injects
+  await window.initRevisionTracker(); // second call: URL guard fires, no fetch
+  assert.equal(fetchCount, 1, "URL guard prevents second fetch for same URL");
+});
+
+// ─── Backfill tests ───────────────────────────────────────────
+
+test("backfill: first load seeds all solved problems as immediately due", async () => {
+  const problem = makeApiProblem({ ib_problem_id: 5001, title: "Quick Sort", sbat_id: 100 });
+  const { window, chrome } = loadWithChrome(
+    {}, // no log, no seeded flag
+    () => ({ ok: true, json: async () => makeProblemsResponse([problem]) })
+  );
+  await window.initRevisionTracker();
+  await tick();
+  const log = chrome.__local[REVISION_LOG_KEY];
+  assert.ok(log["5001"], "backfilled entry exists");
+  assert.ok(log["5001"].nextDue <= Date.now(), "backfilled entry is immediately due");
+  assert.equal(chrome.__local[REVISION_SEEDED_KEY], true, "seeded flag written");
+});
+
+test("backfill: already-seeded → backfill skipped on second load", async () => {
+  let fetchCount = 0;
+  const problem = makeApiProblem({ ib_problem_id: 6001, title: "DFS", sbat_id: 100 });
+  // Simulate second load: seeded flag set, log already has the entry
+  const existingEntry = makeLogEntry({ stage: 1, nextDue: Date.now() + 3 * 86400000 });
+  const chrome = makeChrome({
+    localStore: {
+      [REVISION_LOG_KEY]: { "6001": existingEntry },
+      [REVISION_SEEDED_KEY]: true,
+    },
+  });
+  const { window } = loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
+    globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
+    fetch: async () => {
+      fetchCount++;
+      return { ok: true, json: async () => makeProblemsResponse([problem]) };
+    },
+    chrome,
   });
   await window.initRevisionTracker();
-  assert.equal(fetchCount, 0, "guard attribute already present → no fetch");
+  await tick();
+  // stage should be unchanged (backfill skipped because already seeded)
+  assert.equal(chrome.__local[REVISION_LOG_KEY]["6001"].stage, 1);
 });
 
 // ─── DOM tests: _injectPanel ──────────────────────────────────
 
-test("_injectPanel: panel not injected twice (SPA guard via attribute)", async () => {
+test("panel not injected twice (URL-based SPA guard)", async () => {
   const problem = makeApiProblem({ ib_problem_id: 7001, title: "Merge Sort", sbat_id: 300 });
   const { window } = loadFeature(FEATURE, {
     url: "https://www.scaler.com/academy/mentee-dashboard/todos",
@@ -228,7 +301,7 @@ test("_injectPanel: panel not injected twice (SPA guard via attribute)", async (
   assert.equal(panels.length, 1);
 });
 
-test("_injectPanel: shows N items when N problems are due today", async () => {
+test("panel shows N items when N problems are due today", async () => {
   const now = Date.now();
   const log = {
     "1001": makeLogEntry({ nextDue: now - 1000, title: "Two Sum" }),
@@ -246,7 +319,7 @@ test("_injectPanel: shows N items when N problems are due today", async () => {
   assert.equal(btns.length, 2);
 });
 
-test("_injectPanel: shows empty state when nothing is due", async () => {
+test("panel shows empty state when nothing is due", async () => {
   const now = Date.now();
   const log = {
     "1001": makeLogEntry({ nextDue: now + 86400000 }), // future

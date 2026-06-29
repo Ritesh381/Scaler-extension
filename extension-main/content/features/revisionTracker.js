@@ -4,6 +4,7 @@
 // ============================================================
 
 const REVISION_LOG_KEY = "scalerpp_revision_log";
+const REVISION_SEEDED_KEY = "scalerpp_revision_seeded";
 const PANEL_ATTR = "data-revision-injected";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REVISION_INTERVALS = [1, 3, 7, 14, 30]; // days
@@ -18,7 +19,7 @@ function _buildProblemUrl(p) {
   );
 }
 
-function _buildEntry(apiProblem) {
+function _buildEntry(apiProblem, nextDue) {
   const now = Date.now();
   return {
     title: apiProblem.title,
@@ -26,13 +27,17 @@ function _buildEntry(apiProblem) {
     solvedAt: now,
     intervals: [...REVISION_INTERVALS],
     stage: 0,
-    nextDue: now + REVISION_INTERVALS[0] * DAY_MS,
+    nextDue: nextDue !== undefined ? nextDue : now + REVISION_INTERVALS[0] * DAY_MS,
   };
 }
 
+// Matches any non-null, non-"unsolved" status so we catch "solved", "completed", etc.
 function _detectNewSolves(apiProblems, log) {
   return apiProblems.filter(
-    (p) => p.status === "solved" && !log[String(p.ib_problem_id)]
+    (p) =>
+      p.status != null &&
+      p.status !== "unsolved" &&
+      !log[String(p.ib_problem_id)]
   );
 }
 
@@ -54,8 +59,10 @@ function _advanceStage(entry) {
   };
 }
 
-// ─── Session cache ────────────────────────────────────────────
+// ─── Session state ────────────────────────────────────────────
 let _problemsCache = null;
+// Track the URL where panel was last injected; prevents multiple panels on SPA nav.
+let _lastInjectedUrl = null;
 
 // ─── Storage ──────────────────────────────────────────────────
 
@@ -75,6 +82,18 @@ function _writeLog(log) {
       else resolve();
     });
   });
+}
+
+function _readSeeded() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(REVISION_SEEDED_KEY, (result) => {
+      resolve(!!result[REVISION_SEEDED_KEY]);
+    });
+  });
+}
+
+function _markSeeded() {
+  chrome.storage.local.set({ [REVISION_SEEDED_KEY]: true });
 }
 
 // ─── DOM ──────────────────────────────────────────────────────
@@ -172,11 +191,17 @@ function _injectPanel(dueProblems) {
 async function initRevisionTracker() {
   if (!isExtensionValid()) return;
   if (typeof currentSettings !== "undefined" && !currentSettings["revision-tracker"]) return;
-  if (document.querySelector(`[${PANEL_ATTR}]`)) return;
 
   // Only inject on the main Scaler dashboard / todos page
   if (!location.href.includes("/academy/mentee-dashboard")) return;
   if (location.pathname.includes("/problems/") || location.pathname.includes("/class/")) return;
+
+  // URL-keyed guard: if panel was already injected for this exact URL, skip.
+  // Using URL (not a DOM attribute) so Scaler SPA DOM replacement can't fool us.
+  if (_lastInjectedUrl === location.href) return;
+
+  // Remove any stale panel left from a previous URL if Scaler didn't clean up.
+  document.querySelector(`[${PANEL_ATTR}]`)?.remove();
 
   if (!_problemsCache) {
     try {
@@ -200,6 +225,28 @@ async function initRevisionTracker() {
     log = {};
   }
 
+  // One-time backfill: seed ALL already-solved problems as immediately due
+  // so students who installed the extension after solving see them right away.
+  const alreadySeeded = await _readSeeded().catch(() => false);
+  if (!alreadySeeded) {
+    const allSolved = apiProblems.filter(
+      (p) => p.status != null && p.status !== "unsolved"
+    );
+    allSolved.forEach((p) => {
+      const id = String(p.ib_problem_id);
+      if (!log[id]) {
+        // nextDue = now so they appear immediately in today's queue
+        log[id] = _buildEntry(p, Date.now());
+      }
+    });
+    try {
+      await _writeLog(log);
+      _markSeeded();
+    } catch (e) {
+      console.warn("[Scaler++ Revision] Backfill write failed:", e);
+    }
+  }
+
   const newSolves = _detectNewSolves(apiProblems, log);
   if (newSolves.length > 0) {
     newSolves.forEach((p) => {
@@ -214,6 +261,7 @@ async function initRevisionTracker() {
 
   const due = _getDueToday(log);
   _injectPanel(due);
+  _lastInjectedUrl = location.href;
 }
 
 window.initRevisionTracker = initRevisionTracker;
