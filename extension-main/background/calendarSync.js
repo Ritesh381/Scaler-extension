@@ -147,6 +147,15 @@ function _clearAlarm() {
  * Attempts getAuthToken (Chrome-native, zero config needed).
  * Falls back to launchWebAuthFlow for Brave / Edge / Arc.
  *
+ * WHY interactivity is forwarded (fixes 24h auto-sync, issue #13):
+ * A *manual* sync must call getAuthToken with interactive:true so Chrome shows
+ * the consent screen AND populates its refreshable token cache. Only then can
+ * the *background* (interactive:false) call return a token 24h later — Chrome
+ * auto-refreshes cached getAuthToken tokens. Previously Attempt 1 was always
+ * interactive:false, so the cache was never populated and every background sync
+ * failed silently (the launchWebAuthFlow implicit token is not cached, expires
+ * in ~1h, and has no refresh token) — forcing users to sync manually each time.
+ *
  * NOTE: For launchWebAuthFlow to succeed, the URI returned by
  * chrome.identity.getRedirectURL() must be added as an
  * Authorized Redirect URI in Google Cloud Console under the
@@ -154,9 +163,11 @@ function _clearAlarm() {
  */
 async function _getOAuthToken(isInteractive) {
   // ── Attempt 1: Chrome native (getAuthToken) ───────────────
+  // Forward the caller's interactivity: interactive:true on a manual sync
+  // seeds the refreshable cache; interactive:false in the background reuses it.
   try {
     const token = await new Promise((resolve, reject) => {
-      chrome.identity.getAuthToken({ interactive: false }, (t) => {
+      chrome.identity.getAuthToken({ interactive: isInteractive }, (t) => {
         if (chrome.runtime.lastError || !t) {
           reject(new Error(chrome.runtime.lastError?.message ?? "no token"));
         } else {
