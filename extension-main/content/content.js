@@ -177,12 +177,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const sPanel = document.getElementById('scaler-summary-panel'); if (sPanel) sPanel.remove();
       }
     } else if (key === "revision-tracker") {
-      if (value) {
-        if (typeof initRevisionTracker === "function") initRevisionTracker();
-      } else {
-        const panel = document.querySelector("[data-revision-injected]");
-        if (panel) panel.remove();
-      }
+      if (value && typeof initRevisionTracker === "function") initRevisionTracker();
     } else {
       updateVisibilityForKey(key, value);
     }

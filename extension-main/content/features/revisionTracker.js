@@ -1,11 +1,11 @@
 // ============================================================
 // content/features/revisionTracker.js — Smart Revision
 // Detect solved Scaler problems and schedule spaced revision.
+// Queue is shown in the extension popup, NOT injected into the page.
 // ============================================================
 
 const REVISION_LOG_KEY = "scalerpp_revision_log";
 const REVISION_SEEDED_KEY = "scalerpp_revision_seeded";
-const PANEL_ATTR = "data-revision-injected";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REVISION_INTERVALS = [1, 3, 7, 14, 30]; // days
 
@@ -19,10 +19,22 @@ function _buildProblemUrl(p) {
   );
 }
 
+// The problems-data API uses inconsistent field names across versions.
+// Try known candidates; fall back to a stable "Problem #ID" label.
+function _getProblemTitle(p) {
+  return (
+    p.name ||
+    p.problem_name ||
+    p.title ||
+    p.heading ||
+    `Problem #${p.ib_problem_id}`
+  );
+}
+
 function _buildEntry(apiProblem, nextDue) {
   const now = Date.now();
   return {
-    title: apiProblem.title,
+    title: _getProblemTitle(apiProblem),
     url: _buildProblemUrl(apiProblem),
     solvedAt: now,
     intervals: [...REVISION_INTERVALS],
@@ -31,7 +43,7 @@ function _buildEntry(apiProblem, nextDue) {
   };
 }
 
-// Matches any non-null, non-"unsolved" status so we catch "solved", "completed", etc.
+// Matches any non-null, non-"unsolved" status to catch all Scaler API variants.
 function _detectNewSolves(apiProblems, log) {
   return apiProblems.filter(
     (p) =>
@@ -59,10 +71,8 @@ function _advanceStage(entry) {
   };
 }
 
-// ─── Session state ────────────────────────────────────────────
+// ─── Session cache ────────────────────────────────────────────
 let _problemsCache = null;
-// Track the URL where panel was last injected; prevents multiple panels on SPA nav.
-let _lastInjectedUrl = null;
 
 // ─── Storage ──────────────────────────────────────────────────
 
@@ -96,112 +106,15 @@ function _markSeeded() {
   chrome.storage.local.set({ [REVISION_SEEDED_KEY]: true });
 }
 
-// ─── DOM ──────────────────────────────────────────────────────
-
-function _escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function _injectPanel(dueProblems) {
-  const anchor =
-    document.querySelector("main") ||
-    document.body;
-
-  const count = dueProblems.length;
-  const collapsed =
-    typeof sessionStorage !== "undefined" &&
-    sessionStorage.getItem("scalerpp_revision_collapsed") === "true";
-
-  const itemsHtml =
-    count === 0
-      ? '<p class="srp-empty">Nothing due today ✓</p>'
-      : dueProblems
-          .map(
-            (p) =>
-              `<div class="srp-item" data-pid="${_escapeHtml(p.id)}">` +
-              `<span class="srp-item-title">${_escapeHtml(p.title)}</span>` +
-              `<button class="srp-revisit-btn" data-pid="${_escapeHtml(p.id)}" ` +
-              `data-url="${_escapeHtml(p.url)}">Revisit</button></div>`
-          )
-          .join("");
-
-  const panel = document.createElement("div");
-  panel.className = "scaler-revision-panel";
-  panel.setAttribute(PANEL_ATTR, "true");
-  panel.innerHTML =
-    `<div class="srp-header">` +
-    `<span class="srp-title">📚 Revise Today${count > 0 ? ` (${count})` : ""}</span>` +
-    `<button class="srp-toggle" aria-label="Toggle panel">${collapsed ? "+" : "−"}</button>` +
-    `</div>` +
-    `<div class="srp-body${collapsed ? " srp-hidden" : ""}">${itemsHtml}</div>`;
-
-  anchor.prepend(panel);
-
-  panel.querySelector(".srp-toggle").addEventListener("click", () => {
-    const body = panel.querySelector(".srp-body");
-    const isNowCollapsed = body.classList.toggle("srp-hidden");
-    panel.querySelector(".srp-toggle").textContent = isNowCollapsed ? "+" : "−";
-    if (typeof sessionStorage !== "undefined") {
-      sessionStorage.setItem("scalerpp_revision_collapsed", String(isNowCollapsed));
-    }
-  });
-
-  panel.querySelectorAll(".srp-revisit-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const pid = btn.dataset.pid;
-      const url = btn.dataset.url || "https://www.scaler.com/academy";
-      window.open(url, "_blank");
-      try {
-        const log = await _readLog();
-        if (!log[pid]) return;
-        const updated = _advanceStage(log[pid]);
-        if (updated === null) {
-          delete log[pid];
-        } else {
-          log[pid] = updated;
-        }
-        await _writeLog(log);
-
-        const item = panel.querySelector(`.srp-item[data-pid="${pid}"]`);
-        if (item) item.remove();
-
-        const remaining = panel.querySelectorAll(".srp-revisit-btn").length;
-        const titleEl = panel.querySelector(".srp-title");
-        if (titleEl) {
-          titleEl.textContent =
-            `📚 Revise Today${remaining > 0 ? ` (${remaining})` : ""}`;
-        }
-        if (remaining === 0) {
-          const body = panel.querySelector(".srp-body");
-          if (body) body.innerHTML = '<p class="srp-empty">Nothing due today ✓</p>';
-        }
-      } catch (e) {
-        console.warn("[Scaler++ Revision] Failed to update log:", e);
-      }
-    });
-  });
-}
-
-// ─── Main entry point ─────────────────────────────────────────
+// ─── Main entry point (detection only — no DOM injection) ─────
 
 async function initRevisionTracker() {
   if (!isExtensionValid()) return;
   if (typeof currentSettings !== "undefined" && !currentSettings["revision-tracker"]) return;
 
-  // Only inject on the main Scaler dashboard / todos page
+  // Only run detection on the Scaler dashboard (not on problem/class pages)
   if (!location.href.includes("/academy/mentee-dashboard")) return;
   if (location.pathname.includes("/problems/") || location.pathname.includes("/class/")) return;
-
-  // URL-keyed guard: if panel was already injected for this exact URL, skip.
-  // Using URL (not a DOM attribute) so Scaler SPA DOM replacement can't fool us.
-  if (_lastInjectedUrl === location.href) return;
-
-  // Remove any stale panel left from a previous URL if Scaler didn't clean up.
-  document.querySelector(`[${PANEL_ATTR}]`)?.remove();
 
   if (!_problemsCache) {
     try {
@@ -235,7 +148,6 @@ async function initRevisionTracker() {
     allSolved.forEach((p) => {
       const id = String(p.ib_problem_id);
       if (!log[id]) {
-        // nextDue = now so they appear immediately in today's queue
         log[id] = _buildEntry(p, Date.now());
       }
     });
@@ -258,10 +170,7 @@ async function initRevisionTracker() {
       console.warn("[Scaler++ Revision] Storage write failed:", e);
     }
   }
-
-  const due = _getDueToday(log);
-  _injectPanel(due);
-  _lastInjectedUrl = location.href;
+  // Badge is updated reactively by background/revisionBadge.js via storage.onChanged
 }
 
 window.initRevisionTracker = initRevisionTracker;
@@ -271,3 +180,4 @@ window._detectNewSolves = _detectNewSolves;
 window._getDueToday = _getDueToday;
 window._advanceStage = _advanceStage;
 window._buildEntry = _buildEntry;
+window._getProblemTitle = _getProblemTitle;

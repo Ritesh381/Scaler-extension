@@ -22,6 +22,19 @@
 
       <!-- Main Content -->
       <main class="content">
+
+        <!-- Revision Queue (shown only when feature is on and problems are due) -->
+        <div id="revision-queue-wrap" class="revision-queue-wrap" style="display:none">
+          <div class="revision-queue-header">
+            <span class="revision-queue-title">📚 Revise Today</span>
+            <span id="revision-queue-count" class="revision-queue-count"></span>
+          </div>
+          <div id="revision-queue-list" class="revision-queue-list"></div>
+          <div class="revision-queue-footer">
+            <button id="revision-clear-btn" class="revision-clear-btn">Clear all revision data</button>
+          </div>
+        </div>
+
         <!-- Appearance Section -->
         <section class="section">
           <div class="section-header">

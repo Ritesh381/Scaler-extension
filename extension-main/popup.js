@@ -341,6 +341,105 @@ function showToast(message, type = "success") {
   }, 1200);
 }
 
+// ─── Smart Revision Queue ────────────────────────────────────
+
+const REVISION_LOG_KEY = "scalerpp_revision_log";
+const REVISION_SEEDED_KEY = "scalerpp_revision_seeded";
+const DAY_MS_POPUP = 24 * 60 * 60 * 1000;
+const REVISION_INTERVALS_POPUP = [1, 3, 7, 14, 30];
+
+function _advanceStagePopup(entry) {
+  const nextStage = entry.stage + 1;
+  if (nextStage >= entry.intervals.length) return null;
+  return {
+    ...entry,
+    stage: nextStage,
+    nextDue: Date.now() + entry.intervals[nextStage] * DAY_MS_POPUP,
+  };
+}
+
+function _escapeHtmlPopup(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function loadRevisionQueue() {
+  const wrap = document.getElementById("revision-queue-wrap");
+  if (!wrap) return;
+
+  // Feature must be enabled
+  if (!currentSettings["revision-tracker"]) {
+    wrap.style.display = "none";
+    return;
+  }
+
+  let log = {};
+  try {
+    const result = await chrome.storage.local.get(REVISION_LOG_KEY);
+    log = result[REVISION_LOG_KEY] || {};
+  } catch {
+    wrap.style.display = "none";
+    return;
+  }
+
+  const now = Date.now();
+  const due = Object.entries(log)
+    .filter(([, e]) => e.nextDue <= now)
+    .map(([id, e]) => ({ id, ...e }));
+
+  const countEl = document.getElementById("revision-queue-count");
+  const listEl = document.getElementById("revision-queue-list");
+  if (!listEl) return;
+
+  if (due.length === 0) {
+    wrap.style.display = "none";
+    return;
+  }
+
+  wrap.style.display = "block";
+  if (countEl) countEl.textContent = `${due.length} due`;
+
+  listEl.innerHTML = due
+    .map(
+      (p) =>
+        `<div class="revision-queue-item" data-pid="${_escapeHtmlPopup(p.id)}">` +
+        `<span class="rq-title">${_escapeHtmlPopup(p.title || "Problem #" + p.id)}</span>` +
+        `<button class="rq-revisit-btn" data-pid="${_escapeHtmlPopup(p.id)}" ` +
+        `data-url="${_escapeHtmlPopup(p.url || "https://www.scaler.com/academy")}">Revisit</button>` +
+        `</div>`
+    )
+    .join("");
+
+  listEl.querySelectorAll(".rq-revisit-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const pid = btn.dataset.pid;
+      const url = btn.dataset.url;
+      chrome.tabs.create({ url });
+
+      try {
+        const result = await chrome.storage.local.get(REVISION_LOG_KEY);
+        const updatedLog = result[REVISION_LOG_KEY] || {};
+        if (!updatedLog[pid]) return;
+        const advanced = _advanceStagePopup(updatedLog[pid]);
+        if (advanced === null) {
+          delete updatedLog[pid];
+        } else {
+          updatedLog[pid] = advanced;
+        }
+        await chrome.storage.local.set({ [REVISION_LOG_KEY]: updatedLog });
+      } catch (e) {
+        console.warn("[Scaler++ Revision] Failed to advance stage:", e);
+      }
+
+      // Re-render after update
+      await loadRevisionQueue();
+    });
+  });
+}
+
 /**
  * Initialize popup
  */
@@ -353,7 +452,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Load saved settings
-  loadSettings();
+  loadSettings().then(() => loadRevisionQueue());
+
+  // Clear revision data button
+  document.getElementById("revision-clear-btn")?.addEventListener("click", async () => {
+    await chrome.storage.local.remove([REVISION_LOG_KEY, REVISION_SEEDED_KEY]);
+    await loadRevisionQueue();
+    showToast("Revision data cleared ✓", "success");
+  });
 
   // Setup toggle change handlers - INSTANT APPLY
   Object.entries(TOGGLE_MAP).forEach(([toggleId, settingKey]) => {
