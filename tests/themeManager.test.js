@@ -335,3 +335,33 @@ test("initThemeManager reads the saved theme from chrome.storage.sync", async ()
   const style = window.document.getElementById(STYLE_ID);
   assert.match(style.textContent, /hue-rotate\(165deg\)/, "nord recipe applied");
 });
+
+test("dark is the default: initThemeManager applies dark when no theme is stored", async () => {
+  // A fresh user (empty cleanerSettings / no theme key) must get DARK, not light.
+  const chrome = makeChrome({ syncStore: {} });
+  chrome.storage.sync.get = async () => ({}); // nothing stored
+  const { window } = loadFeature(THEME_FILE, { chrome });
+
+  await window.initThemeManager();
+
+  const root = window.document.documentElement;
+  assert.ok(root.classList.contains(ROOT_CLASS), "dark applied by default on a light page");
+  const style = window.document.getElementById(STYLE_ID);
+  assert.match(style.textContent, /filter:\s*invert\(1\)/, "dark recipe applied by default");
+  assert.ok(root.classList.contains("scaler-theme-dark"), "dark id class set by default");
+});
+
+test("an explicit 'off' choice still wins over the dark default", async () => {
+  // The dark default must only fill in an UNSET theme — never override a user
+  // who deliberately turned theming off.
+  const chrome = makeChrome({ syncStore: { cleanerSettings: { theme: "off" } } });
+  chrome.storage.sync.get = async () => ({ cleanerSettings: { theme: "off" } });
+  const { window } = loadFeature(THEME_FILE, { chrome });
+
+  await window.initThemeManager();
+
+  assert.ok(
+    !window.document.documentElement.classList.contains(ROOT_CLASS),
+    "explicit off respected — no invert applied",
+  );
+});

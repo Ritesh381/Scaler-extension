@@ -855,7 +855,9 @@ async function initThemeManager() {
       return;
     }
     const result = await chrome.storage.sync.get("cleanerSettings");
-    const theme = result?.cleanerSettings?.theme || "off";
+    // Dark is the default: a user who has never picked a theme gets dark. An
+    // explicit choice (including "off"/light) is a truthy stored value and wins.
+    const theme = result?.cleanerSettings?.theme || "dark";
     applyTheme(theme);
   } catch (error) {
     if (error?.message && error.message.includes("context invalidated")) return;
@@ -876,7 +878,7 @@ function watchThemeChanges() {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "sync" || !changes.cleanerSettings) return;
       const next = changes.cleanerSettings.newValue || {};
-      applyTheme(next.theme || "off");
+      applyTheme(next.theme || "dark");
     });
   } catch (_) {
     /* no-op */

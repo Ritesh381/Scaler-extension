@@ -53,8 +53,8 @@ const DEFAULT_SETTINGS = {
   // Spotlight Search
   "spotlight-search": true,
 
-  // Appearance — site-wide theme ("off" = native Scaler look)
-  theme: "off",
+  // Appearance — site-wide theme (default "dark"; "off" = native Scaler look)
+  theme: "dark",
 };
 
 // All toggle IDs mapped to their setting keys
