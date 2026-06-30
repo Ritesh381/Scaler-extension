@@ -154,6 +154,70 @@
               </div>
             </label>
 
+            <!-- Video End Time toggle -->
+            <div
+              class="toggle-item highlight"
+              style="align-items: flex-start; cursor: default"
+            >
+              <div class="toggle-info" style="gap: 10px">
+                <label
+                  for="toggle-video-end-time"
+                  style="
+                    cursor: pointer;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                  "
+                >
+                  <span class="toggle-title">⏱️ Video End Time</span>
+                  <span class="toggle-desc"
+                    >Show when the lecture video will finish, extends the
+                    speed dropdown beyond 2x.</span
+                  >
+                </label>
+
+                <div
+                  id="video-end-time-options"
+                  style="display: none"
+                >
+                  <label
+                    class="toggle-item highlight"
+                    style="padding: 6px 8px; border-radius: 6px; cursor: pointer"
+                  >
+                    <div class="toggle-info">
+                      <span class="toggle-title" style="font-size: 12px"
+                        >⚡ Speed Override &amp; Hotkeys</span
+                      >
+                      <span class="toggle-desc" style="font-size: 10px"
+                        >Custom speed slider + Shift+, / Shift+. hotkeys ±0.1x</span
+                      >
+                    </div>
+                    <div class="toggle-switch">
+                      <input
+                        type="checkbox"
+                        id="toggle-video-end-time-speed"
+                        checked
+                      />
+                      <span class="slider"></span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <label
+                class="toggle-switch"
+                for="toggle-video-end-time"
+                style="margin-top: 4px; cursor: pointer"
+              >
+                <input
+                  type="checkbox"
+                  id="toggle-video-end-time"
+                  checked
+                />
+                <span class="slider"></span>
+              </label>
+            </div>
+
             <label class="toggle-item highlight">
               <div class="toggle-info">
                 <span class="toggle-title">🔗 LeetCode Link</span>

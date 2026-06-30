@@ -51,6 +51,10 @@ const DEFAULT_SETTINGS = {
   // Spotlight Search
   "spotlight-search": true,
 
+  // Video End Time
+  "video-end-time": true,
+  "video-end-time-speed": true,
+
   // Appearance — site-wide theme (default "dark"; "off" = native Scaler look)
   theme: "dark",
 };
