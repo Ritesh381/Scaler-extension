@@ -438,6 +438,14 @@ body {
   box-shadow: 0 0 0 3px var(--primary-light);
 }
 
+/* Force-disabled feature row: locked OFF (see FORCE_DISABLED_FEATURES). */
+.toggle-item--locked {
+  opacity: 0.45;
+}
+.toggle-item--locked .slider {
+  cursor: not-allowed;
+}
+
 /* Footer */
 .footer {
   display: flex;

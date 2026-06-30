@@ -3,6 +3,15 @@
 // Integrates live stream recording and DVR into Scaler++
 // ============================================================
 
+// ── FORCE DISABLE (kill switch) ─────────────────────────────────────────────
+// While true, the Live Stream Recorder is OFF for EVERY user regardless of their
+// saved setting: init() returns immediately, so it never injects UI, never
+// starts observers, and never wires the popup toggle — so a user who had it
+// enabled (stored value `true`) is disabled too. Flip to false to ship the
+// feature again. Keep in sync with FORCE_DISABLED_FEATURES in popup.js (which
+// locks the matching toggle off).
+const LIVE_STREAM_RECORDER_FORCE_DISABLED = true;
+
 class LiveStreamRecorder {
   constructor() {
     this.enabled = true;
@@ -35,6 +44,14 @@ class LiveStreamRecorder {
   }
 
   async init() {
+    // Hard kill switch — force-disabled for all users. Do nothing at all: no
+    // settings read, no toggle listener, no observer, no injection. (See
+    // LIVE_STREAM_RECORDER_FORCE_DISABLED above.)
+    if (LIVE_STREAM_RECORDER_FORCE_DISABLED) {
+      this.enabled = false;
+      return;
+    }
+
     // Check if the feature is enabled in settings
     try {
       const result = await chrome.storage.sync.get("cleanerSettings");

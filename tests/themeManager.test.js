@@ -164,6 +164,75 @@ test("a dark-theme Monaco editor is counter-inverted by CLASS (no scan needed)",
   );
 });
 
+test("Dark theme keeps img tags at their exact original colors (incl. in dark panels)", () => {
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("dark");
+  const css = window.document.getElementById(STYLE_ID).textContent;
+  const root = window.SCALER_THEMES.dark.filter; // invert(1) hue-rotate(180deg)
+
+  // Top-level media counter must be the EXACT inverse of the root filter, so a
+  // counter-inverted image returns to its true colors (self-inverse recipe).
+  const topImg = css.match(/Real media[\s\S]*?\{\s*filter:\s*([^;]+?)\s*!important;/);
+  assert.ok(topImg, "real-media rule present");
+  assert.equal(topImg[1].trim(), root, "top-level img counter == exact inverse of root");
+
+  // Media INSIDE a dark region must cancel the region's brightness bump too, so
+  // images in dark panels/editors are pristine (not ~10% brighter). The filter
+  // P·brightness(1/1.1)·P telescopes to identity through root+region inversions.
+  const inRegion = css.match(/normal orientation[\s\S]*?\{\s*filter:\s*([^;]+?)\s*!important;/);
+  assert.ok(inRegion, "in-region media rule present");
+  assert.match(
+    inRegion[1],
+    /invert\(1\) hue-rotate\(180deg\) brightness\(0\.9091\) invert\(1\) hue-rotate\(180deg\)/,
+    "in-region media cancels the region brightness exactly on the Dark theme",
+  );
+});
+
+test("tinted themes leave in-region media untouched (no regression)", () => {
+  // Tinted recipes have no exact CSS inverse, so the brightness-cancel must NOT
+  // be applied — they keep the previous filter:none, unchanged behavior.
+  for (const id of ["midnight", "sepia", "dracula", "nord", "solarized"]) {
+    const { window } = loadFeature(THEME_FILE);
+    window.applyTheme(id);
+    const css = window.document.getElementById(STYLE_ID).textContent;
+    const inRegion = css.match(/normal orientation[\s\S]*?\{\s*filter:\s*([^;]+?)\s*!important;/);
+    assert.ok(inRegion, `${id}: in-region media rule present`);
+    assert.equal(inRegion[1].trim(), "none", `${id}: in-region media stays filter:none`);
+  }
+});
+
+test("spotlight overlay is counter-inverted AND its backdrop-filter is killed in dark mode", () => {
+  // Regression: backdrop-filter:blur on the overlay samples the PRE-invert
+  // (light) page through the root filter and washes the overlay out to light.
+  // The theme must un-invert the overlay (so it stays dark-as-designed) and drop
+  // its backdrop-filter (which can't compose with the root <html> filter).
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("dark");
+  const css = window.document.getElementById(STYLE_ID).textContent;
+  const rule = css.match(/#scaler-spotlight-overlay\s*\{[^}]*\}/);
+  assert.ok(rule, "spotlight overlay rule present");
+  assert.match(rule[0], /filter:\s*invert\(1\) hue-rotate\(180deg\)\s*!important/, "overlay counter-inverted");
+  assert.match(rule[0], /backdrop-filter:\s*none\s*!important/, "backdrop-filter killed");
+  assert.match(rule[0], /-webkit-backdrop-filter:\s*none\s*!important/, "-webkit-backdrop-filter killed");
+});
+
+test("session-card ::after scrim is pre-inverted so it stays a dark shadow (all dark themes)", () => {
+  // Regression: .past-events__info::after is a dark bottom-fade scrim; the root
+  // invert flipped it to a white glow. The theme must re-author it with a
+  // PRE-INVERTED (white→black) gradient so it renders dark in every dark theme.
+  for (const id of ["dark", "midnight", "sepia", "dracula", "nord", "solarized"]) {
+    const { window } = loadFeature(THEME_FILE);
+    window.applyTheme(id);
+    const css = window.document.getElementById(STYLE_ID).textContent;
+    const rule = css.match(/\.past-events__info::after\s*\{[^}]*\}/);
+    assert.ok(rule, `${id}: past-events scrim rule present`);
+    // White stops → render black after the invert; must NOT contain rgba(0,0,0…)
+    // (that would invert to a white glow — the bug).
+    assert.match(rule[0], /rgba\(255,\s*255,\s*255/, `${id}: scrim uses pre-inverted white stops`);
+    assert.ok(!/rgba\(\s*0,\s*0,\s*0/.test(rule[0]), `${id}: scrim has no raw black stops`);
+  }
+});
+
 test("a natively-dark page is left native (no invert applied)", () => {
   // body has its own dark background → the whole page is already dark.
   const html = `<!DOCTYPE html><html><body style="background-color: rgb(14, 14, 18)">
@@ -265,4 +334,34 @@ test("initThemeManager reads the saved theme from chrome.storage.sync", async ()
   assert.ok(root.classList.contains(ROOT_CLASS), "theme applied from storage");
   const style = window.document.getElementById(STYLE_ID);
   assert.match(style.textContent, /hue-rotate\(165deg\)/, "nord recipe applied");
+});
+
+test("dark is the default: initThemeManager applies dark when no theme is stored", async () => {
+  // A fresh user (empty cleanerSettings / no theme key) must get DARK, not light.
+  const chrome = makeChrome({ syncStore: {} });
+  chrome.storage.sync.get = async () => ({}); // nothing stored
+  const { window } = loadFeature(THEME_FILE, { chrome });
+
+  await window.initThemeManager();
+
+  const root = window.document.documentElement;
+  assert.ok(root.classList.contains(ROOT_CLASS), "dark applied by default on a light page");
+  const style = window.document.getElementById(STYLE_ID);
+  assert.match(style.textContent, /filter:\s*invert\(1\)/, "dark recipe applied by default");
+  assert.ok(root.classList.contains("scaler-theme-dark"), "dark id class set by default");
+});
+
+test("an explicit 'off' choice still wins over the dark default", async () => {
+  // The dark default must only fill in an UNSET theme — never override a user
+  // who deliberately turned theming off.
+  const chrome = makeChrome({ syncStore: { cleanerSettings: { theme: "off" } } });
+  chrome.storage.sync.get = async () => ({ cleanerSettings: { theme: "off" } });
+  const { window } = loadFeature(THEME_FILE, { chrome });
+
+  await window.initThemeManager();
+
+  assert.ok(
+    !window.document.documentElement.classList.contains(ROOT_CLASS),
+    "explicit off respected — no invert applied",
+  );
 });
