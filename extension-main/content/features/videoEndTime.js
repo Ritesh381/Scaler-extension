@@ -1,28 +1,30 @@
 // ============================================
 // features/videoEndTime.js
-// Video end time display + extended speed dropdown + hotkeys
+// Video end time display + custom speed panel + hotkeys
 //
-// Shows "Ends at: HH:MM" on Scaler's video player, styled to match
-// the native control bar. Extends the existing playback speed
-// dropdown with values beyond 2x (up to 16x). Keyboard shortcuts
-// allow quick speed changes (Shift+. speed up, Shift+, slow down).
+// Shows "Ends at: HH:MM" on Scaler's video player.
+// Replaces the native speed dropdown with a custom
+// speed panel (slider + speed dial buttons).
+// Keyboard shortcuts: Shift+. / Shift+, for ±0.1x.
 // ============================================
 
 const VIDEO_END_TIME_ATTR = "data-scaler-end-time";
-const SCALER_EXTRA_ITEM = "scaler-extra-speed";
-const SCALER_SPEED_ATTR = "data-scaler-custom-speed";
-
+const SPEED_PANEL_ID = "scaler-speed-panel";
 const CUSTOM_SPEED_KEY = "scaler-custom-speed";
-const EXTRA_SPEEDS = [2.5, 3, 4, 6, 8, 12, 16];
-const SPEED_PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6, 8, 12, 16];
+const SPEED_TIP_ID = "scaler-speed-tip";
 
-// Store the last custom speed so we can re-apply it if Scaler resets it
+// Speed dial presets
+const SPEED_DIAL = [
+  0.5, 1, 1.25, 1.5, 1.75, 2, 2.15, 2.5, 2.75,
+  3, 3.5, 4, 6, 8, 12, 16,
+];
+
 let _lastCustomSpeed = null;
 let _speedGuardInterval = null;
 
-// ─── Helpers ──────────────────────────────────────
+// ─── DOM helpers ────────────────────────────────
 
-function findScalerVideo() {
+function findVideo() {
   return (
     document.querySelector(".vp-video") ||
     document.querySelector("video.vp-video") ||
@@ -35,242 +37,364 @@ function findTimeDisplay() {
   return document.querySelector(".vp-controls__duration");
 }
 
-function findSpeedTitle() {
-  return document.querySelector(".vp-playback-title");
-}
-
 function findSpeedButton() {
   return document.querySelector(
-    "[data-cy='video-player-controls-playback-rate-button'], .vp-dropdown"
+    ".vp-playback-title, " +
+    "[data-cy='video-player-controls-playback-rate-button']"
   );
 }
 
-function findDropdownContainer() {
+function findSpeedDropdownContainer() {
   const btn = findSpeedButton();
-  return btn ? btn.closest(".dropdown") : null;
+  return btn ? btn.closest(".dropdown, .vp-controls__control") : null;
 }
 
 function formatEndTime(date) {
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// ─── Speed Application ──────────────────────────
+// ─── Speed Apply ────────────────────────────────
 
-function applyPlaybackSpeed(video, speed) {
-  if (!video) return false;
+function applySpeed(video, speed) {
+  if (!video) return;
   const rate = Math.max(0.1, Math.min(16, parseFloat(speed) || 1));
   video.playbackRate = rate;
   _lastCustomSpeed = rate;
-
-  // Update dropdown title
-  const title = findSpeedTitle();
-  if (title) {
-    const display = rate === Math.round(rate) ? rate + "" : rate.toFixed(2);
-    title.textContent = display + "x";
-  }
-
   localStorage.setItem(CUSTOM_SPEED_KEY, String(rate));
+  updateSpeedButtonLabel(rate);
   return rate;
 }
 
-// ─── Speed Guardian ────────────────────────────
-// Scaler's player may reset playbackRate on various events (seeking,
-// source change, fullscreen toggle, etc.).  This runs a tick every
-// 600ms and re-applies the custom speed if the player changed it.
+function updateSpeedButtonLabel(rate) {
+  const label = rate === Math.round(rate) ? rate + "" : rate.toFixed(2);
+  const title = findSpeedButton();
+  if (title) title.textContent = label + "x";
+}
 
-function _startSpeedGuard() {
+// ─── Speed Guardian ─────────────────────────────
+
+function startSpeedGuard() {
   if (_speedGuardInterval) return;
   _speedGuardInterval = setInterval(() => {
     if (!_lastCustomSpeed) return;
-    const video = findScalerVideo();
-    if (!video || !video.duration) return;
-    // If the player's rate differs from ours and it's outside our range
+    const video = findVideo();
+    if (!video) return;
     if (Math.abs(video.playbackRate - _lastCustomSpeed) > 0.01) {
-      // Only re-apply if our speed is >2x (native speeds are handled by Scaler)
-      // or if it's clearly a reset (back to 1x while we were at e.g. 1.5x)
-      const isNative = video.playbackRate <= 2 && _lastCustomSpeed <= 2;
-      if (!isNative) {
+      // Only re-apply if it looks like a reset (rate changed to a close value
+      // that's not our speed, or back to 1x while we were faster)
+      if (video.playbackRate <= 2 || _lastCustomSpeed > 2) {
         video.playbackRate = _lastCustomSpeed;
       }
     }
   }, 600);
 }
 
-function _stopSpeedGuard() {
+function stopSpeedGuard() {
   if (_speedGuardInterval) {
     clearInterval(_speedGuardInterval);
     _speedGuardInterval = null;
   }
 }
 
-// ─── End Time Overlay ────────────────────────────
+// ─── End Time Overlay ───────────────────────────
 
-function injectEndTimeOverlay() {
-  const video = findScalerVideo();
-  const timeDisplay = findTimeDisplay();
-  if (!video || !timeDisplay) return;
+function injectEndTime() {
+  const video = findVideo();
+  const td = findTimeDisplay();
+  if (!video || !td) return;
   if (document.querySelector(`[${VIDEO_END_TIME_ATTR}]`)) return;
 
-  // Restore saved speed
   const saved = parseFloat(localStorage.getItem(CUSTOM_SPEED_KEY));
   if (saved && saved > 0 && Math.abs(saved - video.playbackRate) > 0.01) {
-    applyPlaybackSpeed(video, saved);
+    applySpeed(video, saved);
   }
 
-  const container = document.createElement("div");
-  container.setAttribute(VIDEO_END_TIME_ATTR, "true");
-  container.style.display = "flex";
-  container.style.alignItems = "center";
-  container.style.gap = "8px";
-  container.style.flexShrink = "0";
+  const wrap = document.createElement("div");
+  wrap.setAttribute(VIDEO_END_TIME_ATTR, "true");
+  wrap.style.cssText = "display:flex;align-items:center;gap:8px;flex-shrink:0";
 
-  const endTimeDiv = document.createElement("div");
-  endTimeDiv.className = "vp-controls__duration";
-  endTimeDiv.style.whiteSpace = "nowrap";
-  endTimeDiv.style.fontSize = "inherit";
-  container.appendChild(endTimeDiv);
+  const el = document.createElement("div");
+  el.className = "vp-controls__duration";
+  el.style.whiteSpace = "nowrap";
+  wrap.appendChild(el);
 
-  // Insert after the native duration
-  timeDisplay.parentNode.insertBefore(container, timeDisplay.nextSibling);
+  td.parentNode.insertBefore(wrap, td.nextSibling);
 
-  function updateEndTime() {
+  function tick() {
     if (!video || !video.duration || video.duration === Infinity) return;
-    const remaining =
-      (video.duration - video.currentTime) / (video.playbackRate || 1);
-    const endTime = new Date(Date.now() + remaining * 1000);
-    endTimeDiv.textContent = `Ends at: ${formatEndTime(endTime)}`;
+    const rem = (video.duration - video.currentTime) / (video.playbackRate || 1);
+    el.textContent = "Ends at: " + formatEndTime(new Date(Date.now() + rem * 1000));
   }
 
-  updateEndTime();
-  const intervalId = setInterval(updateEndTime, 1000);
-  container._endTimeInterval = intervalId;
-  container._videoRef = video;
+  tick();
+  const iv = setInterval(tick, 1000);
+  wrap._iv = iv;
 
-  const rateHandler = () => updateEndTime();
-  video.addEventListener("ratechange", rateHandler);
-  container._rateChangeHandler = rateHandler;
+  const rh = () => tick();
+  video.addEventListener("ratechange", rh);
+  wrap._rh = rh;
+  wrap._vid = video;
 }
 
-// ─── Speed Dropdown Extension ───────────────────
+// ─── Speed Panel (slider + speed dial) ──────────
 
-/**
- * Find the actual dropdown menu that contains speed options.
- * Scaler's dropdown may vary in structure, so we try multiple strategies.
- */
-function findSpeedMenu() {
-  const container = findDropdownContainer();
-  if (!container) return null;
+function buildSpeedPanel() {
+  // Remove existing panel if any
+  const old = document.getElementById(SPEED_PANEL_ID);
+  if (old) old.remove();
 
-  // Strategy 1: standard dropdown menu class
-  let menu = container.querySelector(
-    ".dropdown__items, .dropdown__menu, [role='menu'], .vp-dropdown-items, .vp-playback-menu"
-  );
-  if (menu) return menu;
+  const panel = document.createElement("div");
+  panel.id = SPEED_PANEL_ID;
+  panel.style.cssText = `
+    position:fixed; z-index:99999;
+    background:#1a1a2e; border:1px solid rgba(255,255,255,0.12);
+    border-radius:12px; padding:16px 20px 18px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.6);
+    min-width:280px;
+    font-family:inherit;
+  `;
 
-  // Strategy 2: look for a sibling/child div that becomes visible when dropdown is open
-  const allChildren = container.querySelectorAll(":scope > div, :scope > ul, :scope > section");
-  for (const child of allChildren) {
-    if (child !== findSpeedButton() && child.offsetParent !== null) {
-      const items = child.querySelectorAll("a, button, div[role='menuitem'], .dropdown__item");
-      if (items.length >= 3) return child; // looks like a menu with items
+  // ── Current speed display ──
+  const currentRate = findVideo()?.playbackRate || 1;
+
+  const header = document.createElement("div");
+  header.style.cssText =
+    "display:flex;justify-content:space-between;align-items:center;margin-bottom:10px";
+
+  const title = document.createElement("span");
+  title.textContent = "Playback Speed";
+  title.style.cssText = "color:rgba(255,255,255,0.7);font-size:13px;font-weight:500";
+
+  const rateVal = document.createElement("span");
+  rateVal.id = "scaler-speed-value";
+  const disp = currentRate === Math.round(currentRate) ? currentRate + "" : currentRate.toFixed(2);
+  rateVal.textContent = disp + "x";
+  rateVal.style.cssText = "color:#fff;font-size:18px;font-weight:700";
+
+  header.appendChild(title);
+  header.appendChild(rateVal);
+  panel.appendChild(header);
+
+  // ── Slider ──
+  const sliderWrap = document.createElement("div");
+  sliderWrap.style.cssText = "margin-bottom:14px";
+
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = "0.1";
+  slider.max = "16";
+  slider.step = "0.1";
+  slider.value = String(currentRate);
+  slider.style.cssText = `
+    width:100%; height:4px; -webkit-appearance:none; appearance:none;
+    background:linear-gradient(to right, #6366f1 0%, #6366f1 50%, rgba(255,255,255,0.15) 50%);
+    border-radius:2px; outline:none; cursor:pointer;
+  `;
+
+  // Slider thumb styling
+  const thumbStyle = document.createElement("style");
+  thumbStyle.textContent = `
+    #${SPEED_PANEL_ID} input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance:none; appearance:none;
+      width:16px; height:16px; border-radius:50%;
+      background:#6366f1; border:2px solid #fff;
+      cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.3);
     }
-  }
-
-  // Strategy 3: the menu might be outside the .dropdown container but attached to body
-  // Look for visible menus
-  const visibleMenus = document.querySelectorAll(
-    ".dropdown__items:not([hidden]), .dropdown__menu:not([hidden]), [role='menu']:not([hidden])"
-  );
-  for (const m of visibleMenus) {
-    if (m.textContent.includes("1x") && m.textContent.includes("2x")) {
-      return m;
+    #${SPEED_PANEL_ID} input[type=range]::-moz-range-thumb {
+      width:16px; height:16px; border-radius:50%;
+      background:#6366f1; border:2px solid #fff;
+      cursor:pointer;
     }
-  }
+  `;
+  document.head.appendChild(thumbStyle);
 
-  return null;
-}
+  // Slider gradient update on input
+  const updateSliderBG = () => {
+    const pct = ((slider.value - 0.1) / (16 - 0.1)) * 100;
+    slider.style.background =
+      `linear-gradient(to right, #6366f1 0%, #6366f1 ${pct}%, rgba(255,255,255,0.15) ${pct}%)`;
+  };
 
-function injectExtraSpeedOptions() {
-  if (!currentSettings || !currentSettings["video-end-time-speed"]) return;
+  slider.addEventListener("input", () => {
+    const val = parseFloat(slider.value);
+    const video = findVideo();
+    if (video) applySpeed(video, val);
+    const disp2 = val === Math.round(val) ? val + "" : val.toFixed(2);
+    document.getElementById("scaler-speed-value").textContent = disp2 + "x";
+    updateSliderBG();
+    highlightActiveDial(val);
+  });
 
-  const menu = findSpeedMenu();
-  if (!menu) return;
+  sliderWrap.appendChild(slider);
+  panel.appendChild(sliderWrap);
 
-  // Already injected?
-  if (menu.querySelector(`.${SCALER_EXTRA_ITEM}`)) return;
+  // ── Speed dial buttons ──
+  const dialGrid = document.createElement("div");
+  dialGrid.style.cssText =
+    "display:flex;flex-wrap:wrap;gap:6px;justify-content:center";
 
-  // Find last native item (look for anything containing a speed value)
-  const allItems = menu.querySelectorAll(
-    "[role='menuitem'], .dropdown__item, a, button, div"
-  );
-  let lastItem = null;
-  for (const item of allItems) {
-    if (item.closest(`.${SCALER_EXTRA_ITEM}`)) continue; // skip our own
-    const text = item.textContent.trim();
-    if (/^\d+(\.\d+)?x$/.test(text)) {
-      lastItem = item;
+  SPEED_DIAL.forEach((s) => {
+    const btn = document.createElement("button");
+    btn.dataset.speed = String(s);
+    const label = s === Math.round(s) ? s + "" : s.toFixed(2);
+    btn.textContent = label + "x";
+    btn.style.cssText = `
+      padding:5px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.1);
+      background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.85);
+      font-size:12px; cursor:pointer; transition:all 0.15s;
+      font-family:inherit;
+    `;
+
+    if (Math.abs(s - currentRate) < 0.01) {
+      btn.style.background = "#6366f1";
+      btn.style.borderColor = "#6366f1";
+      btn.style.color = "#fff";
     }
-  }
 
-  if (!lastItem) return;
-
-  // Divider
-  const divider = document.createElement("div");
-  divider.className = `${SCALER_EXTRA_ITEM} dropdown__divider`;
-  divider.style.cssText =
-    "height:1px;background:rgba(255,255,255,0.15);margin:4px 12px;";
-  lastItem.parentNode.insertBefore(divider, lastItem.nextSibling);
-
-  // Extra speed items (insert after divider)
-  EXTRA_SPEEDS.forEach((speed) => {
-    const item = document.createElement("div");
-    item.className = `dropdown__item ${SCALER_EXTRA_ITEM}`;
-    item.setAttribute("role", "menuitem");
-    item.setAttribute(SCALER_SPEED_ATTR, String(speed));
-    item.textContent = speed + "x";
-    item.style.cursor = "pointer";
-
-    item.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const video = findScalerVideo();
-      if (video) {
-        applyPlaybackSpeed(video, speed);
-        showSpeedTooltip(speed);
-        _startSpeedGuard();
+    btn.addEventListener("mouseenter", () => {
+      if (!btn.classList.contains("active")) {
+        btn.style.background = "rgba(255,255,255,0.12)";
       }
-      dismissDropdown();
+    });
+    btn.addEventListener("mouseleave", () => {
+      if (!btn.classList.contains("active")) {
+        btn.style.background = "rgba(255,255,255,0.05)";
+      }
     });
 
-    divider.parentNode.insertBefore(item, divider.nextSibling);
+    btn.addEventListener("click", () => {
+      const rate = parseFloat(btn.dataset.speed);
+      const video = findVideo();
+      if (video) {
+        applySpeed(video, rate);
+        slider.value = String(rate);
+        updateSliderBG();
+        const d = rate === Math.round(rate) ? rate + "" : rate.toFixed(2);
+        document.getElementById("scaler-speed-value").textContent = d + "x";
+        highlightActiveDial(rate);
+      }
+      closePanel();
+    });
+
+    dialGrid.appendChild(btn);
   });
+
+  panel.appendChild(dialGrid);
+
+  // ── Keyboard hint ──
+  const hint = document.createElement("div");
+  hint.style.cssText =
+    "color:rgba(255,255,255,0.35);font-size:11px;text-align:center;margin-top:10px";
+  hint.textContent = "Shift + , / .  to fine-tune ±0.1";
+  panel.appendChild(hint);
+
+  document.body.appendChild(panel);
+  positionPanel(panel);
+
+  // Active dial highlighter
+  function highlightActiveDial(rate) {
+    dialGrid.querySelectorAll("button").forEach((b) => {
+      const sv = parseFloat(b.dataset.speed);
+      b.classList.remove("active");
+      b.style.background = Math.abs(sv - rate) < 0.01
+        ? "#6366f1"
+        : "rgba(255,255,255,0.05)";
+      b.style.borderColor = Math.abs(sv - rate) < 0.01
+        ? "#6366f1"
+        : "rgba(255,255,255,0.1)";
+      b.style.color = Math.abs(sv - rate) < 0.01 ? "#fff" : "rgba(255,255,255,0.85)";
+    });
+  }
+
+  return panel;
 }
 
-/**
- * Try to dismiss the open speed dropdown by dispatching Escape.
- */
-function dismissDropdown() {
-  // Dispatch Escape in both capture and bubble
-  document.dispatchEvent(new KeyboardEvent("keydown", {
-    key: "Escape",
-    code: "Escape",
-    bubbles: true,
-    cancelable: true,
-  }));
+function positionPanel(panel) {
+  const btn = findSpeedButton();
+  if (!btn) return;
+  const rect = btn.getBoundingClientRect();
+  const panelW = panel.offsetWidth || 280;
+
+  // Position above the button, centered
+  let left = rect.left + rect.width / 2 - panelW / 2;
+  let top = rect.top - 12 - panel.offsetHeight;
+
+  // Clamp to viewport
+  if (left < 8) left = 8;
+  if (left + panelW > window.innerWidth - 8) {
+    left = window.innerWidth - panelW - 8;
+  }
+  if (top < 8) {
+    // If not enough room above, place below
+    top = rect.bottom + 12;
+  }
+
+  panel.style.left = left + "px";
+  panel.style.top = top + "px";
 }
 
-// ─── Tooltip ─────────────────────────────────────
+function closePanel() {
+  const p = document.getElementById(SPEED_PANEL_ID);
+  if (p) p.remove();
+}
 
-function showSpeedTooltip(speed) {
-  const existing = document.getElementById("scaler-speed-tip");
-  if (existing) existing.remove();
+// ─── Intercept Speed Button ─────────────────────
+
+let _speedButtonIntercepted = false;
+
+function interceptSpeedButton() {
+  if (_speedButtonIntercepted) return;
+
+  const container = findSpeedDropdownContainer();
+  if (!container) {
+    // Try again later
+    setTimeout(interceptSpeedButton, 1000);
+    return;
+  }
+
+  // Intercept clicks on the speed button
+  container.addEventListener(
+    "mousedown",
+    (e) => {
+      // Check if click is on or inside the speed button area
+      const btn = findSpeedButton();
+      if (!btn) return;
+      if (!btn.contains(e.target) && !container.querySelector(".vp-playback-title")?.contains(e.target)) {
+        return;
+      }
+
+      // Only intercept if speed feature is enabled
+      if (!currentSettings || !currentSettings["video-end-time-speed"]) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      // Toggle panel
+      const existing = document.getElementById(SPEED_PANEL_ID);
+      if (existing) {
+        closePanel();
+        return;
+      }
+
+      buildSpeedPanel();
+    },
+    { capture: true }
+  );
+
+  _speedButtonIntercepted = true;
+}
+
+// ─── Tooltip ────────────────────────────────────
+
+function showTooltip(speed) {
+  const old = document.getElementById(SPEED_TIP_ID);
+  if (old) old.remove();
 
   const tip = document.createElement("div");
-  tip.id = "scaler-speed-tip";
-  tip.textContent = speed + "x";
+  tip.id = SPEED_TIP_ID;
+  const label = speed === Math.round(speed) ? speed + "" : speed.toFixed(2);
+  tip.textContent = label + "x";
   tip.style.cssText = `
     position:fixed; top:50%; left:50%;
     transform:translate(-50%,-50%);
@@ -281,16 +405,14 @@ function showSpeedTooltip(speed) {
     animation:speed-tip-fade 1.2s ease-out forwards;
   `;
 
-  if (!document.getElementById("speed-tip-keyframes")) {
+  if (!document.getElementById("speed-tip-kf")) {
     const s = document.createElement("style");
-    s.id = "speed-tip-keyframes";
-    s.textContent = `
-      @keyframes speed-tip-fade {
-        0% { opacity:1; transform:translate(-50%,-50%) scale(1); }
-        60% { opacity:1; transform:translate(-50%,-50%) scale(1.05); }
-        100% { opacity:0; transform:translate(-50%,-50%) scale(0.9); }
-      }
-    `;
+    s.id = "speed-tip-kf";
+    s.textContent = `@keyframes speed-tip-fade {
+      0%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+      60%{opacity:1;transform:translate(-50%,-50%) scale(1.05)}
+      100%{opacity:0;transform:translate(-50%,-50%) scale(0.9)}
+    }`;
     document.head.appendChild(s);
   }
 
@@ -298,184 +420,109 @@ function showSpeedTooltip(speed) {
   setTimeout(() => tip.remove(), 1300);
 }
 
-// ─── Hotkeys ─────────────────────────────────────
+// ─── Hotkeys (0.1x step) ────────────────────────
 
-function nextSpeed(current) {
-  for (const s of SPEED_PRESETS) {
-    if (s > current + 0.01) return s;
-  }
-  return SPEED_PRESETS[SPEED_PRESETS.length - 1];
-}
-
-function prevSpeed(current) {
-  for (let i = SPEED_PRESETS.length - 1; i >= 0; i--) {
-    if (SPEED_PRESETS[i] < current - 0.01) return SPEED_PRESETS[i];
-  }
-  return SPEED_PRESETS[0];
-}
-
-function setupSpeedHotkeys() {
-  if (window._scalerSpeedHotkey) return;
+function setupHotkeys() {
+  if (window._scalerHK) return;
 
   const handler = (e) => {
     if (!currentSettings || !currentSettings["video-end-time-speed"]) return;
-    const video = findScalerVideo();
+    const video = findVideo();
     if (!video || !video.duration) return;
 
-    let handled = false;
     let newSpeed = null;
 
-    // Shift + Period (>) = speed up
     if (e.shiftKey && (e.code === "Period" || e.key === ">" || e.key === ".")) {
-      const cur = video.playbackRate || 1;
-      newSpeed = nextSpeed(cur);
-      handled = true;
+      newSpeed = Math.min(16, (video.playbackRate || 1) + 0.1);
+    } else if (e.shiftKey && (e.code === "Comma" || e.key === "<" || e.key === ",")) {
+      newSpeed = Math.max(0.1, (video.playbackRate || 1) - 0.1);
     }
 
-    // Shift + Comma (<) = slow down
-    if (e.shiftKey && (e.code === "Comma" || e.key === "<" || e.key === ",")) {
-      const cur = video.playbackRate || 1;
-      newSpeed = prevSpeed(cur);
-      handled = true;
-    }
-
-    if (handled && newSpeed !== null) {
+    if (newSpeed !== null) {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      applyPlaybackSpeed(video, newSpeed);
-      showSpeedTooltip(newSpeed);
-      _startSpeedGuard();
+      applySpeed(video, newSpeed);
+      showTooltip(newSpeed);
+      startSpeedGuard();
+      // Round to 1 decimal for display
+      const rounded = Math.round(newSpeed * 10) / 10;
+      updateSpeedButtonLabel(rounded);
     }
   };
 
-  // Register on BOTH window and document with capture, plus bubble as fallback
   window.addEventListener("keydown", handler, { capture: true });
   document.addEventListener("keydown", handler, { capture: true });
-  // Also register non-capture on the video element directly if available
-  setInterval(() => {
-    const video = findScalerVideo();
-    if (video && !video._scalerSpeedAttached) {
-      video.addEventListener("keydown", (e) => {
-        handler(e);
-      });
-      video._scalerSpeedAttached = true;
-    }
-  }, 2000);
-
-  window._scalerSpeedHotkey = handler;
+  window._scalerHK = handler;
 }
 
 function teardownHotkeys() {
-  if (window._scalerSpeedHotkey) {
-    window.removeEventListener("keydown", window._scalerSpeedHotkey, { capture: true });
-    document.removeEventListener("keydown", window._scalerSpeedHotkey, { capture: true });
-    window._scalerSpeedHotkey = null;
+  if (window._scalerHK) {
+    window.removeEventListener("keydown", window._scalerHK, { capture: true });
+    document.removeEventListener("keydown", window._scalerHK, { capture: true });
+    window._scalerHK = null;
   }
-}
-
-// ─── Dropdown Observer ──────────────────────────
-
-let _dropdownParents = new WeakSet();
-
-function watchForDropdown() {
-  const obs = new MutationObserver(() => {
-    if (!currentSettings || !currentSettings["video-end-time-speed"]) return;
-    injectExtraSpeedOptions();
-  });
-
-  obs.observe(document.body, { childList: true, subtree: true });
-
-  // Also watch specific dropdown containers when they appear
-  const containerFinder = new MutationObserver(() => {
-    const container = findDropdownContainer();
-    if (container && !_dropdownParents.has(container)) {
-      _dropdownParents.add(container);
-      const innerObs = new MutationObserver(() => {
-        setTimeout(injectExtraSpeedOptions, 100);
-      });
-      innerObs.observe(container, { childList: true, subtree: true, attributes: true });
-    }
-  });
-
-  containerFinder.observe(document.body, { childList: true, subtree: true });
-  window._scalerDropdownFinder = containerFinder;
-  window._scalerDropdownInjector = obs;
 }
 
 // ─── Init / Teardown ────────────────────────────
 
 function initVideoEndTime() {
-  if (window._endTimeObserver) return;
+  if (window._endTimeObs) return;
 
-  injectEndTimeOverlay();
-
-  const observer = new MutationObserver(() => {
-    injectEndTimeOverlay();
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-  window._endTimeObserver = observer;
-
-  // Speed-related features
-  // Inject responsive CSS
-  var _vetStyle = document.getElementById("scaler-vet-style");
-  if (!_vetStyle) {
-    _vetStyle = document.createElement("style");
-    _vetStyle.id = "scaler-vet-style";
-    _vetStyle.textContent =
-      "@media (max-width: 800px) { " +
-        "[" + VIDEO_END_TIME_ATTR + "] { display:none !important; } " +
-      "}";
-    document.head.appendChild(_vetStyle);
+  // Responsive CSS
+  if (!document.getElementById("scaler-vet-css")) {
+    const s = document.createElement("style");
+    s.id = "scaler-vet-css";
+    s.textContent =
+      "@media(max-width:800px){[" + VIDEO_END_TIME_ATTR + "]{display:none!important}}";
+    document.head.appendChild(s);
   }
+
+  injectEndTime();
+
+  const obs = new MutationObserver(() => injectEndTime());
+  obs.observe(document.body, { childList: true, subtree: true });
+  window._endTimeObs = obs;
 
   if (currentSettings && currentSettings["video-end-time-speed"]) {
-    watchForDropdown();
-    setTimeout(injectExtraSpeedOptions, 1500);
-    setTimeout(injectExtraSpeedOptions, 3000);
-    setupSpeedHotkeys();
-    _startSpeedGuard();
+    interceptSpeedButton();
+    setTimeout(interceptSpeedButton, 2000);
+    setupHotkeys();
+    startSpeedGuard();
   }
+
+  // Close panel on Escape / click outside
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePanel();
+  });
+  document.addEventListener("mousedown", (e) => {
+    const p = document.getElementById(SPEED_PANEL_ID);
+    if (p && !p.contains(e.target)) {
+      const btn = findSpeedButton();
+      if (!btn || !btn.contains(e.target)) {
+        closePanel();
+      }
+    }
+  });
 }
 
 function removeEndTimeOverlay() {
   // End time overlay
-  const overlay = document.querySelector(`[${VIDEO_END_TIME_ATTR}]`);
-  if (overlay) {
-    if (overlay._endTimeInterval) clearInterval(overlay._endTimeInterval);
-    if (overlay._rateChangeHandler && overlay._videoRef) {
-      overlay._videoRef.removeEventListener(
-        "ratechange",
-        overlay._rateChangeHandler
-      );
-    }
-    overlay.remove();
+  const wrap = document.querySelector(`[${VIDEO_END_TIME_ATTR}]`);
+  if (wrap) {
+    if (wrap._iv) clearInterval(wrap._iv);
+    if (wrap._rh && wrap._vid) wrap._vid.removeEventListener("ratechange", wrap._rh);
+    wrap.remove();
   }
 
-  // Observer
-  if (window._endTimeObserver) {
-    window._endTimeObserver.disconnect();
-    window._endTimeObserver = null;
+  closePanel();
+  if (window._endTimeObs) {
+    window._endTimeObs.disconnect();
+    window._endTimeObs = null;
   }
 
-  // Hotkeys
   teardownHotkeys();
-
-  // Speed guardian
-  _stopSpeedGuard();
-
-  // Dropdown injected items
-  document.querySelectorAll(`.${SCALER_EXTRA_ITEM}`).forEach((el) => el.remove());
-
-  // Dropdown observers
-  if (window._scalerDropdownFinder) {
-    window._scalerDropdownFinder.disconnect();
-    window._scalerDropdownFinder = null;
-  }
-  if (window._scalerDropdownInjector) {
-    window._scalerDropdownInjector.disconnect();
-    window._scalerDropdownInjector = null;
-  }
-
+  stopSpeedGuard();
   _lastCustomSpeed = null;
+  _speedButtonIntercepted = false;
 }
