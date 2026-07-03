@@ -81,6 +81,7 @@
         "content/features/themeManager.js",
         "content/features/revisionTracker.js",
         "content/features/revisionMarker.js",
+        "content/features/revisionPanel.js",
         "content/content.js"
       ],
       "css": [

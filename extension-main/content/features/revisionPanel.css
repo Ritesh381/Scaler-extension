@@ -1,13 +1,12 @@
+/* ── Sidebar "Revise Today" panel ── */
 .scaler-revision-panel {
-  margin: 12px 16px 0;
+  margin: 0 0 12px 0;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   overflow: hidden;
   font-family: inherit;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
-  position: relative;
-  z-index: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .07);
 }
 
 .srp-header {
@@ -15,32 +14,45 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: #f9fafb;
+  background: #f0f4ff;
   border-bottom: 1px solid #e5e7eb;
+  gap: 6px;
 }
 
 .srp-title {
   font-size: 13px;
+  font-weight: 700;
+  color: #1e3a8a;
+  flex: 1;
+}
+
+.srp-count {
+  font-size: 11px;
   font-weight: 600;
-  color: #111827;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 20px;
+  padding: 1px 8px;
+  white-space: nowrap;
 }
 
 .srp-toggle {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
   color: #6b7280;
-  padding: 0 4px;
+  padding: 0 2px;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .srp-toggle:hover {
-  color: #111827;
+  color: #1e3a8a;
 }
 
 .srp-body {
-  padding: 8px 14px;
+  padding: 6px 14px 10px;
 }
 
 .srp-body.srp-hidden {
@@ -58,7 +70,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 0;
+  padding: 7px 0;
   border-bottom: 1px solid #f3f4f6;
   gap: 8px;
 }
@@ -105,7 +117,11 @@ html.scaler-theme-active .srp-header {
 }
 
 html.scaler-theme-active .srp-title {
-  color: #e2e8f0;
+  color: #93c5fd;
+}
+
+html.scaler-theme-active .srp-count {
+  background: #3b82f6;
 }
 
 html.scaler-theme-active .srp-toggle {
