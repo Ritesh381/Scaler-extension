@@ -177,7 +177,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const sPanel = document.getElementById('scaler-summary-panel'); if (sPanel) sPanel.remove();
       }
     } else if (key === "revision-tracker") {
-      if (value && typeof initRevisionMarker === "function") initRevisionMarker();
+      if (value) {
+        if (typeof initRevisionMarker === "function") initRevisionMarker();
+        if (typeof initRevisionPanel === "function") initRevisionPanel();
+      } else {
+        // Remove the dashboard panel if feature is turned off
+        const panel = document.getElementById("scaler-revision-panel-sidebar");
+        if (panel) panel.remove();
+      }
     } else {
       updateVisibilityForKey(key, value);
     }
@@ -242,6 +249,9 @@ window.addEventListener("load", async () => {
   setTimeout(() => {
     if (currentSettings?.["revision-tracker"] && typeof initRevisionMarker === "function") {
       initRevisionMarker();
+    }
+    if (currentSettings?.["revision-tracker"] && typeof initRevisionPanel === "function") {
+      initRevisionPanel();
     }
   }, 2000);
 });
@@ -319,6 +329,9 @@ handleUrlChange = function () {
   setTimeout(() => {
     if (currentSettings?.["revision-tracker"] && typeof initRevisionMarker === "function") {
       initRevisionMarker();
+    }
+    if (currentSettings?.["revision-tracker"] && typeof initRevisionPanel === "function") {
+      initRevisionPanel();
     }
   }, 2000);
 };
