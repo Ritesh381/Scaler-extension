@@ -51,11 +51,11 @@ const DEFAULT_SETTINGS = {
   // Spotlight Search
   "spotlight-search": true,
 
-  // Appearance — site-wide theme ("off" = native Scaler look)
-  theme: "off",
-
   // Smart Revision — spaced repetition for solved problems
   "revision-tracker": true,
+  
+  // Appearance — site-wide theme (default "dark"; "off" = native Scaler look)
+  theme: "dark",
 };
 
 // Elements config for /academy/mentee-dashboard/todos page

@@ -127,6 +127,25 @@ async function triggerBypass() {
   }, BYPASS_DURATION_MS);
 }
 
+// ── Cold-start safety net: clear stranded bypass rules ──
+// The 5 s auto-deactivate in triggerBypass() lives in a setTimeout, which —
+// unlike the dynamic DNR rules it is meant to remove — does NOT survive a
+// service-worker restart. MV3 can terminate this worker at any point during the
+// 5 s window (a pending setTimeout does not keep the worker alive). The timer
+// then dies, but the IP-spoofing headers persist and would stay attached to
+// EVERY scaler.com request indefinitely.
+//
+// This top-level call runs on every worker cold start (the worker script is
+// re-evaluated each time it wakes). At that instant no bypass from the CURRENT
+// worker is active yet, so it can only ever remove rules orphaned by a
+// previously-killed worker — never a live window. And because the remove call
+// is dispatched synchronously here (before any awaited work), it is ordered
+// ahead of any same-wake activation from the onUpdated handler below, so it
+// cannot race-clear a freshly-added rule. This covers every restart path
+// (browser launch, extension update, and a plain event-driven wake) — which
+// onStartup/onInstalled alone would miss.
+deactivateCompanionBypass();
+
 /**
  * Listen for tab navigations.
  * Fires triggerBypass() when a join-session URL is detected and the

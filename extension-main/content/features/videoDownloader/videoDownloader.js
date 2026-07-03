@@ -42,6 +42,11 @@ class VideoDownloader {
         } else if (msg.value) {
           this.checkAndInject();
           this._startObserver();
+          // Re-arm the .m3u8 capture too — the disable branch tore it down, so
+          // without this the network observer stays dead after an off→on toggle
+          // and every download fails ("could not locate stream"). Self-guards
+          // against double-start.
+          this._startNetworkObserver();
         }
       } else if (msg.action === "FETCH_PROXY") {
         // Proxy fetch request to bypass CORS for CloudFront chunks

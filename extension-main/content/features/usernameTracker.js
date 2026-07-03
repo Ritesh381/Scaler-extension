@@ -4,7 +4,7 @@
 
 // Bump this number whenever new fields are added to the payload.
 // All existing users will automatically re-sync on next page load.
-const SYNC_VERSION = 8;
+const SYNC_VERSION = 9;
 
 function initUsernameTracker() {
   if (typeof chrome === "undefined" || !chrome.runtime?.id) return;

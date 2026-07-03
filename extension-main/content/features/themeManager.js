@@ -24,21 +24,29 @@
 const SCALER_THEME_STYLE_ID = "scaler-theme-styles";
 const SCALER_THEME_ROOT_CLASS = "scaler-theme-active";
 
-// Counter recipe applied to media so photos/videos are NOT inverted.
-// invert(1) hue-rotate(180deg) is its own inverse, so this neutralises the
-// dominant invert+hue of every dark recipe below (any extra brightness /
-// saturate tuning is minor on media and visually acceptable).
-const SCALER_THEME_MEDIA_COUNTER = "invert(1) hue-rotate(180deg)";
+// The canonical self-inverse recipe: applying `invert(1) hue-rotate(180deg)`
+// twice is the identity. The plain Dark theme's filter IS exactly this recipe,
+// which is why media counter-inverted with it returns to its EXACT original
+// colors. Tinted themes layer extra sepia/partial-invert/etc. that has no exact
+// CSS inverse, so only a self-inverse theme can guarantee pristine media.
+const SCALER_SELF_INVERSE = "invert(1) hue-rotate(180deg)";
+
+// Counter recipe applied to media so photos/videos are NOT inverted. For a
+// self-inverse theme (Dark) this is the EXACT inverse of the root filter, so
+// images keep their true colors; for tinted recipes it neutralises the dominant
+// invert+hue and any residual tint is minor and visually acceptable.
+const SCALER_THEME_MEDIA_COUNTER = SCALER_SELF_INVERSE;
 
 // Counter for natively-dark REGIONS (code editors, players, dark panels, etc.).
 // Same un-inversion as media, plus a brightness BUMP so the region's native
 // dark-grey blends down toward the inverted near-black page instead of standing
 // out as a lighter panel. A region sits between the root invert and this counter
 // invert, so brightness > 1 darkens the final result (and keeps light text
-// readable). Media INSIDE such a region is filter:none, so it only inherits the
-// 1.1x brightness (a slight brighten) — never dimmed.
-const SCALER_THEME_REGION_COUNTER =
-  "invert(1) hue-rotate(180deg) brightness(1.1)";
+// readable). The bump is factored out so the in-region media rule can cancel it
+// exactly (see buildThemeCss) — otherwise images in dark panels render ~10%
+// brighter than the original.
+const SCALER_REGION_BRIGHTNESS = 1.1;
+const SCALER_THEME_REGION_COUNTER = `${SCALER_SELF_INVERSE} brightness(${SCALER_REGION_BRIGHTNESS})`;
 
 // Class/attr used to flag natively-dark regions (code editors, video players,
 // the lecture whiteboard, dark output panels) that must NOT be inverted again —
@@ -303,6 +311,19 @@ function buildThemeCss(theme, fontUrl) {
     .flatMap((s) => mediaTags.map((m) => `html.${r} ${s} ${m}`))
     .join(",\n    ");
 
+  // Filter for media INSIDE a counter-inverted region. The region un-inverts the
+  // media (good) but also applied its brightness bump, so plain `filter:none`
+  // leaves an image ~10% brighter than the original. On a SELF-INVERSE theme we
+  // can cancel that bump EXACTLY: `P · brightness(1/b) · P` telescopes to the
+  // identity through the root- and region-inversions (P·P = identity, and the
+  // two brightness factors multiply to 1), so images in dark panels/editors keep
+  // their TRUE colors. Tinted themes are not self-inverse and have no exact CSS
+  // cancel, so they keep the previous `none` (unchanged — no regression).
+  const isSelfInverse = theme.filter === SCALER_SELF_INVERSE;
+  const regionMediaFilter = isSelfInverse
+    ? `${SCALER_SELF_INVERSE} brightness(${(1 / SCALER_REGION_BRIGHTNESS).toFixed(4)}) ${SCALER_SELF_INVERSE}`
+    : "none";
+
   let css = `
     html.${r} {
       filter: ${theme.filter} !important;
@@ -328,9 +349,18 @@ function buildThemeCss(theme, fontUrl) {
 
     /* The extension's OWN spotlight overlay is already dark-themed, so the root
        invert would flip it to light. Un-invert it (plain counter, no darkening)
-       so it renders exactly as designed. #id wins over the region rules below. */
+       so it renders exactly as designed. #id wins over the region rules below.
+
+       Also kill its backdrop-filter: blur. A backdrop-filter samples the content
+       BEHIND the element, but the root <html> filter moves the backdrop root, so
+       the blur captures the PRE-invert (light) page and washes the whole overlay
+       out to light (filter + backdrop-filter don't compose). The solid dim
+       background already separates the panel, so dropping the blur in dark mode
+       restores a correctly-dark overlay. */
     html.${r} #scaler-spotlight-overlay {
       filter: ${SCALER_THEME_MEDIA_COUNTER} !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
     }
 
     /* Natively-dark regions: un-invert AND darken so they blend with the
@@ -349,14 +379,38 @@ function buildThemeCss(theme, fontUrl) {
     }
 
     /* A counter-inverted region is already back to normal orientation, so media
-       inside it must NOT be inverted again (that would double-flip it). */
+       inside it must NOT be inverted again (that would double-flip it). On a
+       self-inverse theme we go further and cancel the region's brightness bump
+       too, so images in dark panels keep their EXACT original colors rather than
+       a ~10%-brighter version (see regionMediaFilter). */
     ${keepDarkMediaRule} {
-      filter: none !important;
+      filter: ${regionMediaFilter} !important;
     }
 
     /* Double-negative guard: a media element that opts back in. */
     html.${r} .scaler-keep-invert {
       filter: none !important;
+    }
+
+    /* ── Scaler component fixes: dark overlays that the root invert flips to a
+       white glow. A box-shadow / dark gradient scrim is part of the element's
+       paint, so the filter inverts its color along with everything else — a
+       black drop becomes an ugly white halo.
+
+       The session / dashboard / curated-video cards (.past-events__info) fade
+       their bottom to dark via an ::after gradient (a text-legibility scrim).
+       Inverted, that fade glows white. We can't un-invert just the scrim, so we
+       re-author it with a PRE-INVERTED gradient: white here renders BLACK after
+       the root invert (white is achromatic, so this holds across every dark
+       theme — exact on Dark, near-black on the tinted recipes). Result: the
+       scrim stays a dark shadow, as designed. */
+    html.${r} .past-events__info::after {
+      background-image: linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0),
+        rgba(255, 255, 255, 0.52) 90%,
+        #ffffff
+      ) !important;
     }
   `;
 
@@ -801,7 +855,9 @@ async function initThemeManager() {
       return;
     }
     const result = await chrome.storage.sync.get("cleanerSettings");
-    const theme = result?.cleanerSettings?.theme || "off";
+    // Dark is the default: a user who has never picked a theme gets dark. An
+    // explicit choice (including "off"/light) is a truthy stored value and wins.
+    const theme = result?.cleanerSettings?.theme || "dark";
     applyTheme(theme);
   } catch (error) {
     if (error?.message && error.message.includes("context invalidated")) return;
@@ -822,7 +878,7 @@ function watchThemeChanges() {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "sync" || !changes.cleanerSettings) return;
       const next = changes.cleanerSettings.newValue || {};
-      applyTheme(next.theme || "off");
+      applyTheme(next.theme || "dark");
     });
   } catch (_) {
     /* no-op */
