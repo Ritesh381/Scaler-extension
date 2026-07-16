@@ -57,6 +57,11 @@ This document provides a technical overview of how each major feature is impleme
 **Description:** Instantly maps assignment problems to LeetCode, injecting a direct link alongside the problem title.
 **Implementation:** Extracts the problem title, sanitizes it (removing "Q1.", "Unsolved", etc.), and checks LeetCode's GraphQL API (`https://leetcode.com/graphql`) or falls back to a Google Search (`site:leetcode.com/problems`). To bypass CORS, network requests are routed through the background script. Validated links are stored in `chrome.storage.local` with a 30-day TTL for immediate retrieval and caching.
 
+## 📦 Assignment Export
+
+**Description:** Allows students to export coding assignments, problem statements, and MCQs into offline Markdown files or bulk ZIP archives.
+**Implementation:** Implements a heavily decoupled, one-way data flow orchestrator (`exporter.js`). When a user requests a bulk export, the orchestrator spawns an invisible `<iframe>` in the background. It sequentially loads sidebar URLs, uses a shared `assignmentParser.js` to parse React DOM nodes into structured data (Title, Statement, Question Type), and injects a `pageBridge.js` script into the main world to extract user code from the isolated `window.monaco` instance via `CustomEvents`. The data is serialized to Markdown via `markdown.js` and packed into an in-memory JSZip archive (`zip.js`). To prevent memory leaks, iframe execution is sandboxed within a 10-second `Promise.race` timeout and strict `try...finally` cleanup blocks. All processing occurs locally.
+
 ## 🎯 Practice Mode
 
 **Description:** Auto-resets code editor state if an assignment is unvisited for more than 5 hours to prevent spoilers.
