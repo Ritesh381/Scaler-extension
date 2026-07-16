@@ -10,6 +10,44 @@ const ICONS = {
     error: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`
 };
 
+let bulkExportInterval = null;
+
+function clearBulkExportAnimation() {
+    if (bulkExportInterval) {
+        clearInterval(bulkExportInterval);
+        bulkExportInterval = null;
+    }
+    const iconEl = document.getElementById("scaler-export-icon");
+    if (iconEl) {
+        iconEl.style.fontSize = "";
+        iconEl.style.fontWeight = "";
+        iconEl.style.letterSpacing = "";
+        iconEl.style.whiteSpace = "";
+    }
+}
+
+function startBulkExportAnimation(text) {
+    clearBulkExportAnimation();
+    
+    const iconEl = document.getElementById("scaler-export-icon");
+    if (!iconEl) return;
+    
+    iconEl.style.fontSize = "10px";
+    iconEl.style.fontWeight = "bold";
+    iconEl.style.letterSpacing = "-0.5px";
+    iconEl.style.whiteSpace = "nowrap";
+
+    let dots = 1;
+    const updateText = () => {
+        const dotStr = ".".repeat(dots);
+        iconEl.innerHTML = text === "" ? `↓ ${dotStr}` : `↓ ${text}${dotStr}`;
+        dots = (dots % 3) + 1;
+    };
+    
+    updateText();
+    bulkExportInterval = setInterval(updateText, 300);
+}
+
 /**
  * Updates the text of the export button (used for progress)
  * Maintains the existing API by routing the text to the tooltip.
@@ -18,6 +56,13 @@ const ICONS = {
 function updateExportButtonText(text) {
     const tooltip = document.getElementById("scaler-export-tooltip");
     if (tooltip) tooltip.innerText = text;
+
+    const match = text.match(/Exporting (\d+\/\d+)\.\.\./);
+    if (match) {
+        startBulkExportAnimation(match[1]);
+    } else if (text === "Zipping...") {
+        startBulkExportAnimation("ZIP");
+    }
 }
 
 /**
@@ -25,12 +70,13 @@ function updateExportButtonText(text) {
  * @param {'success'|'error'} status 
  */
 function setExportStatus(status) {
+    clearBulkExportAnimation();
     const wrapper = document.querySelector("[data-assignment-export-injected]");
     if (!wrapper) return;
     
     const iconEl = document.getElementById("scaler-export-icon");
     const tooltip = document.getElementById("scaler-export-tooltip");
-    if (!iconEl || !linkEl) return;
+    if (!iconEl) return;
     
     if (status === "success") {
         iconEl.innerHTML = ICONS.check;
@@ -47,6 +93,19 @@ function setExportStatus(status) {
         iconEl.style.color = "currentColor";
         if (tooltip) tooltip.innerText = "Export";
         wrapper.removeAttribute("data-exporting");
+        
+        const linkEl = document.getElementById("scaler-export-btn");
+        if (linkEl) {
+            linkEl.style.cursor = "pointer";
+            linkEl.style.transform = "translateY(0) scale(1)";
+            linkEl.style.boxShadow = "none";
+            // Trigger hover check in case mouse is still over it
+            if (wrapper.matches(":hover")) {
+                linkEl.style.transform = "translateY(-2px) scale(1.02)";
+                linkEl.style.boxShadow = "0 4px 12px rgba(252, 184, 75, 0.3)";
+                linkEl.style.backgroundColor = "#fcb84b";
+            }
+        }
     }, 1500);
 }
 
@@ -241,11 +300,15 @@ function createExportButton(onExportCurrent, onExportAll) {
     });
     
     // Wrapper for exporting clicks to disable UI
-    const handleExport = (callback) => {
+    const handleExport = (callback, isBulk) => {
         if (wrapper.hasAttribute("data-exporting")) return;
         wrapper.setAttribute("data-exporting", "true");
         tooltip.innerText = "Exporting...";
-        exportIcon.innerHTML = ICONS.spinner;
+        
+        if (isBulk) {
+            startBulkExportAnimation("");
+        }
+        
         linkContainer.style.backgroundColor = "#ffefd6";
         linkContainer.style.cursor = "not-allowed";
         linkContainer.style.transform = "translateY(0) scale(1)";
@@ -256,12 +319,12 @@ function createExportButton(onExportCurrent, onExportAll) {
 
     optCurrent.addEventListener("click", (e) => {
         e.stopPropagation();
-        handleExport(onExportCurrent);
+        handleExport(onExportCurrent, false);
     });
 
     optAll.addEventListener("click", (e) => {
         e.stopPropagation();
-        handleExport(onExportAll);
+        handleExport(onExportAll, true);
     });
 
     headingTextDiv.appendChild(wrapper);
