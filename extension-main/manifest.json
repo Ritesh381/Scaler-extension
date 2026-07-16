@@ -59,6 +59,7 @@
         "content/core/styleInjector.js",
         "content/utils/domUtils.js",
         "content/utils/stringUtils.js",
+        "content/utils/assignmentParser.js",
         "content/features/leetcodeLink.js",
         "content/cleaner/cleanerEngine.js",
         "content/cleaner/modalHandler.js",
@@ -79,6 +80,14 @@
         "content/features/spotlightSearch.js",
         "content/features/liveStreamRecorder/liveStreamRecorder.js",
         "content/features/themeManager.js",
+        "libs/jszip.min.js",
+        "content/features/assignmentExport/ui.js",
+        "content/features/assignmentExport/bridge.js",
+        "content/features/assignmentExport/markdown.js",
+        "content/features/assignmentExport/zip.js",
+        "content/features/assignmentExport/downloader.js",
+        "content/features/assignmentExport/exporter.js",
+        "content/features/assignmentExport/assignmentExport.js",
         "content/content.js"
       ],
       "css": [
@@ -99,6 +108,7 @@
         "icons/leetcode_icon.png",
         "libs/agora-sdk.js",
         "content/features/liveStreamRecorder/recorderBridge.js",
+        "content/features/assignmentExport/pageBridge.js",
         "fonts/figtree.woff2"
       ],
       "matches": [

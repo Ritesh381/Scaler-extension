@@ -160,6 +160,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const panel = document.getElementById('scaler-instructor-panel'); if (panel) panel.remove();
         document.querySelectorAll('[data-instructor-info-id]').forEach(el => el.removeAttribute('data-instructor-info-id'));
       }
+    } else if (key === "assignment-export") {
+      if (value) {
+        if (typeof initAssignmentExport === "function") initAssignmentExport();
+      } else {
+        // teardown assignment-export: remove buttons
+        document.querySelectorAll('.scaler-export-assignment, .scaler-export-question').forEach(el => el.remove());
+      }
     } else if (key === "lecture-summary") {
       if (value) {
         if (typeof initLectureSummary === "function") initLectureSummary();
@@ -204,6 +211,13 @@ window.addEventListener("load", async () => {
 
   // Initialize LeetCode link
   setTimeout(initLeetCodeLink, 2000);
+
+  // Initialize Assignment Export
+  setTimeout(() => {
+    if (typeof initAssignmentExport === "function") {
+      initAssignmentExport();
+    }
+  }, 2000);
 
   // Initialize Join Session buttons on dashboard
   setTimeout(initJoinSessionButtons, 1500);
@@ -275,6 +289,11 @@ handleUrlChange = function () {
   // Check for assignment problem pages (LeetCode link)
   if (isAssignmentProblemPage()) {
     setTimeout(initLeetCodeLink, 2000);
+    setTimeout(() => {
+      if (typeof initAssignmentExport === "function") {
+        initAssignmentExport();
+      }
+    }, 2000);
   }
 
   // Re-inject Join Session buttons on any dashboard navigation
