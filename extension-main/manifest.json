@@ -94,7 +94,8 @@
         "content/content.js"
       ],
       "css": [
-        "content/features/liveStreamRecorder/liveStreamRecorder.css"
+        "content/features/liveStreamRecorder/liveStreamRecorder.css",
+        "content/features/vimMode/vimMode.css"
       ],
       "run_at": "document_idle"
     }

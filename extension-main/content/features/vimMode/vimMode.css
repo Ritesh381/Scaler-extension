@@ -1,0 +1,21 @@
+/* Vim mode status line (rendered by monaco-vim below the editor). */
+#scalerpp-vim-status {
+  font-family: "Fira Code", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  padding: 2px 10px;
+  color: #d4d4d4;
+  background: #1e1e1e;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* The ':' command-line input monaco-vim injects into the status node. */
+#scalerpp-vim-status input {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  width: 60%;
+}
