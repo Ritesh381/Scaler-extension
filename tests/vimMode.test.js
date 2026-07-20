@@ -17,3 +17,18 @@ test("vim-mode toggle is wired in TOGGLE_MAP", () => {
   const popup = read("popup.js");
   assert.match(popup, /"toggle-vim-mode":\s*"vim-mode"/);
 });
+
+const { loadFeature } = require("./helpers/harness");
+
+test("isVimCodingPage matches assignment problem URLs only", () => {
+  const cases = [
+    ["https://www.scaler.com/academy/mentee-dashboard/class/441741/assignment/problems/25137", true],
+    ["https://www.scaler.com/academy/mentee-dashboard/class/442882/homework_assignment/problems/11223", true],
+    ["https://www.scaler.com/academy/mentee-dashboard/todos", false],
+    ["https://www.scaler.com/academy/mentee-dashboard/class/441741/assignment/problems", false],
+  ];
+  const { window } = loadFeature("content/features/vimMode/vimMode.js", {});
+  for (const [url, expected] of cases) {
+    assert.equal(window.isVimCodingPage(url), expected, url);
+  }
+});
