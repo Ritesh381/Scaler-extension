@@ -99,6 +99,8 @@
         "icons/leetcode_icon.png",
         "libs/agora-sdk.js",
         "content/features/liveStreamRecorder/recorderBridge.js",
+        "content/features/vimMode/libs/monaco-vim.js",
+        "content/features/vimMode/vimBridge.js",
         "fonts/figtree.woff2"
       ],
       "matches": [
