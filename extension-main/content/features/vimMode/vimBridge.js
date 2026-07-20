@@ -56,6 +56,21 @@
     }
   }
 
+  // Called by the document_start Escape interceptor in vimEditorCapture.js.
+  // Returns true when we've handled the key (so the caller suppresses Scaler's
+  // blur): only while Vim is attached and focus is inside this editor.
+  function handleEscape(target) {
+    if (!state.enabled || !state.vim || !window.MonacoVim) return false;
+    const container =
+      state.editor &&
+      state.editor.getContainerDomNode &&
+      state.editor.getContainerDomNode();
+    if (!container || !container.contains(target)) return false;
+    window.MonacoVim.VimMode.Vim.handleKey(state.vim, "<Esc>", "user");
+    if (state.editor.focus) state.editor.focus();
+    return true;
+  }
+
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
@@ -77,6 +92,7 @@
   window.__scalerppVimBridge = {
     attach,
     detach,
+    handleEscape,
     get enabled() {
       return state.enabled;
     },

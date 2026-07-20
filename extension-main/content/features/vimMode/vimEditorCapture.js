@@ -63,4 +63,22 @@
       clearInterval(poll);
     }
   }, 50);
+
+  // Scaler swallows a real Escape (the editor just blurs) before it reaches
+  // monaco-vim, so insert -> normal never happens. Registering here at
+  // document_start puts this listener ahead of Scaler's, so we can hand Escape
+  // to the vim bridge and stop the blur. The bridge only claims it while Vim is
+  // on and the editor is focused; otherwise Escape passes through untouched.
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "Escape" && e.keyCode !== 27) return;
+      const bridge = window.__scalerppVimBridge;
+      if (bridge && bridge.handleEscape && bridge.handleEscape(e.target)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
 })();
