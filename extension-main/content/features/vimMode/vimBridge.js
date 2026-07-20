@@ -8,7 +8,13 @@
 (function () {
   if (window.__scalerppVimBridge) return;
 
-  const state = { enabled: false, vim: null, editor: null, statusNode: null };
+  const state = {
+    enabled: false,
+    vim: null,
+    editor: null,
+    statusNode: null,
+    lineNumbersPrev: null,
+  };
 
   function ensureStatusNode(editor) {
     if (state.statusNode && state.statusNode.isConnected) return state.statusNode;
@@ -38,6 +44,17 @@
     if (!statusNode) return;
     state.vim = window.MonacoVim.initVimMode(editor, statusNode);
     state.editor = editor;
+    // Vim-style relative line numbers while attached; remember the editor's own
+    // setting so detach can put it back. Monaco's "relative" is the hybrid mode
+    // (absolute on the current line, relative elsewhere).
+    try {
+      const raw = editor.getRawOptions();
+      state.lineNumbersPrev =
+        raw && raw.lineNumbers != null ? raw.lineNumbers : "on";
+      editor.updateOptions({ lineNumbers: "relative" });
+    } catch (e) {
+      // updateOptions unavailable — leave line numbers untouched
+    }
   }
 
   function detach() {
@@ -49,6 +66,14 @@
       }
       state.vim = null;
     }
+    if (state.editor && state.lineNumbersPrev != null) {
+      try {
+        state.editor.updateOptions({ lineNumbers: state.lineNumbersPrev });
+      } catch (e) {
+        // editor already gone
+      }
+    }
+    state.lineNumbersPrev = null;
     state.editor = null;
     if (state.statusNode) {
       state.statusNode.remove();
