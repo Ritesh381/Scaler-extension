@@ -258,6 +258,7 @@ async function handleToggleChange(toggleId, settingKey) {
       "problem-search",
       "problem-picker",
       "leetcode-link",
+      "vim-mode",
       "practice-mode",
       "join-session",
       "companion-bypass",

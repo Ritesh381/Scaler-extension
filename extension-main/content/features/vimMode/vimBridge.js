@@ -76,4 +76,8 @@
       return state.enabled;
     },
   };
+
+  // Tell the orchestrator our listener is live so it can (re)send the desired
+  // state — the first "enable" may have been posted before this script loaded.
+  window.postMessage({ source: "scalerpp-vim-bridge", type: "ready" }, "*");
 })();

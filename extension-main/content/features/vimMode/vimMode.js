@@ -18,6 +18,18 @@ function isVimCodingPage(url) {
 }
 
 let vimBridgeInjected = false;
+let vimDesiredEnabled = false;
+
+// The bridge loads asynchronously, so an "enable" posted right after injection
+// can arrive before its message listener exists. The bridge announces when it
+// is ready; we (re)send the desired state then so the first enable isn't lost.
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  const data = event.data;
+  if (data && data.source === "scalerpp-vim-bridge" && data.type === "ready") {
+    postVimState(vimDesiredEnabled);
+  }
+});
 
 /**
  * Inject the page-world bridge and vendored library once. They stay resident;
@@ -51,12 +63,11 @@ function postVimState(enabled) {
  * Enable or disable Vim mode at runtime (from the popup toggle).
  */
 function setVimEnabled(enabled) {
+  vimDesiredEnabled = enabled;
   if (enabled) {
     injectVimBridge();
-    postVimState(true);
-  } else {
-    postVimState(false);
   }
+  postVimState(enabled);
 }
 
 /**
@@ -66,6 +77,7 @@ function initVimMode() {
   if (!isExtensionValid()) return;
   if (!currentSettings || !currentSettings["vim-mode"]) return;
   if (!isVimCodingPage()) return;
+  vimDesiredEnabled = true;
   injectVimBridge();
   postVimState(true);
 }
