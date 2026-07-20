@@ -1,5 +1,11 @@
-/* Vim mode status line (rendered by monaco-vim below the editor). */
+/* Vim mode status line: an overlay pinned to the bottom of the editor.
+   Positioned out of flow so Scaler's flex layout can't resize it. */
 #scalerpp-vim-status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
   font-family: "Fira Code", Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 20px;

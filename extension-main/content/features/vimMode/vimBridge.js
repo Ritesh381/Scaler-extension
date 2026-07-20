@@ -15,10 +15,15 @@
     const container = editor.getContainerDomNode
       ? editor.getContainerDomNode()
       : editor.getDomNode && editor.getDomNode();
-    if (!container || !container.parentElement) return null;
+    if (!container) return null;
+    // Overlay the status bar at the bottom of the editor's nearest positioned
+    // ancestor. Appending it into the flow (or Scaler's flex parent) lets the
+    // layout resize it into a stray column, so we take it out of flow instead.
+    const anchor = container.offsetParent || container.parentElement;
+    if (!anchor) return null;
     const node = document.createElement("div");
     node.id = "scalerpp-vim-status";
-    container.parentElement.insertBefore(node, container.nextSibling);
+    anchor.appendChild(node);
     state.statusNode = node;
     return node;
   }
