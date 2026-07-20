@@ -71,16 +71,24 @@ function postVimState(enabled) {
 
 /**
  * Mark Vim wanted, then load + enable it. The bridge is only injected once
- * monaco is confirmed live; if it isn't yet, the query prompts the capture
- * shim to reply "monaco-ready", which drives the injection.
+ * monaco is confirmed live. Because monaco can finish loading at any point
+ * relative to us, we poll the capture shim with "query-monaco" until it replies
+ * "monaco-ready" and the bridge is injected — this survives a monaco-ready
+ * message that lands before our listener exists, or a slow editor mount.
  */
 function requestVimEnable() {
   vimDesiredEnabled = true;
-  window.postMessage({ source: "scalerpp-vim-mode", type: "query-monaco" }, "*");
-  if (monacoReady) {
-    injectVimBridge();
-    postVimState(true);
-  }
+  const attempt = (remaining) => {
+    if (!vimDesiredEnabled || vimBridgeInjected || !isExtensionValid()) return;
+    if (monacoReady) {
+      injectVimBridge();
+      postVimState(true);
+      return;
+    }
+    window.postMessage({ source: "scalerpp-vim-mode", type: "query-monaco" }, "*");
+    if (remaining > 0) setTimeout(() => attempt(remaining - 1), 400);
+  };
+  attempt(25);
 }
 
 /**

@@ -74,7 +74,7 @@
     if (e.source !== window) return;
     const d = e.data;
     if (d && d.source === "scalerpp-vim-mode" && d.type === "query-monaco") {
-      if (store.last && window.monaco && window.monaco.editor) {
+      if (window.monaco && window.monaco.editor) {
         window.postMessage(
           { source: "scalerpp-vim-capture", type: "monaco-ready" },
           "*",
