@@ -18,6 +18,10 @@
     store.editors.push(editor);
     store.last = editor;
     window.dispatchEvent(new CustomEvent("scalerpp-vim-editor"));
+    // Tell the (isolated-world) orchestrator that monaco is live now, so it
+    // only loads monaco-vim once window.monaco is valid — the library captures
+    // window.monaco at load and is inert if it loads too early.
+    window.postMessage({ source: "scalerpp-vim-capture", type: "monaco-ready" }, "*");
   }
 
   function hook(monaco) {
@@ -63,6 +67,21 @@
       clearInterval(poll);
     }
   }, 50);
+
+  // Answer the orchestrator's readiness query (covers the case where monaco
+  // was already captured before its listener was set up).
+  window.addEventListener("message", (e) => {
+    if (e.source !== window) return;
+    const d = e.data;
+    if (d && d.source === "scalerpp-vim-mode" && d.type === "query-monaco") {
+      if (store.last && window.monaco && window.monaco.editor) {
+        window.postMessage(
+          { source: "scalerpp-vim-capture", type: "monaco-ready" },
+          "*",
+        );
+      }
+    }
+  });
 
   // Scaler swallows a real Escape (the editor just blurs) before it reaches
   // monaco-vim, so insert -> normal never happens. Registering here at

@@ -19,15 +19,25 @@ function isVimCodingPage(url) {
 
 let vimBridgeInjected = false;
 let vimDesiredEnabled = false;
+let monacoReady = false;
 
-// The bridge loads asynchronously, so an "enable" posted right after injection
-// can arrive before its message listener exists. The bridge announces when it
-// is ready; we (re)send the desired state then so the first enable isn't lost.
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
   const data = event.data;
-  if (data && data.source === "scalerpp-vim-bridge" && data.type === "ready") {
+  if (!data) return;
+  // The bridge loads asynchronously, so an "enable" posted right after injection
+  // can arrive before its listener exists. The bridge announces when it is
+  // ready; we (re)send the desired state then so the first enable isn't lost.
+  if (data.source === "scalerpp-vim-bridge" && data.type === "ready") {
     postVimState(vimDesiredEnabled);
+  } else if (data.source === "scalerpp-vim-capture" && data.type === "monaco-ready") {
+    // monaco is live now — safe to load monaco-vim (it captures window.monaco
+    // at load and can't drive the editor if it loads before monaco exists).
+    monacoReady = true;
+    if (vimDesiredEnabled) {
+      injectVimBridge();
+      postVimState(true);
+    }
   }
 });
 
@@ -36,7 +46,7 @@ window.addEventListener("message", (event) => {
  * enable/disable is driven by postMessage, not by re-injection.
  */
 function injectVimBridge() {
-  if (vimBridgeInjected || !isExtensionValid()) return;
+  if (vimBridgeInjected || !isExtensionValid() || !monacoReady) return;
   vimBridgeInjected = true;
 
   const lib = document.createElement("script");
@@ -60,14 +70,29 @@ function postVimState(enabled) {
 }
 
 /**
+ * Mark Vim wanted, then load + enable it. The bridge is only injected once
+ * monaco is confirmed live; if it isn't yet, the query prompts the capture
+ * shim to reply "monaco-ready", which drives the injection.
+ */
+function requestVimEnable() {
+  vimDesiredEnabled = true;
+  window.postMessage({ source: "scalerpp-vim-mode", type: "query-monaco" }, "*");
+  if (monacoReady) {
+    injectVimBridge();
+    postVimState(true);
+  }
+}
+
+/**
  * Enable or disable Vim mode at runtime (from the popup toggle).
  */
 function setVimEnabled(enabled) {
   vimDesiredEnabled = enabled;
   if (enabled) {
-    injectVimBridge();
+    requestVimEnable();
+  } else {
+    postVimState(false);
   }
-  postVimState(enabled);
 }
 
 /**
@@ -77,7 +102,5 @@ function initVimMode() {
   if (!isExtensionValid()) return;
   if (!currentSettings || !currentSettings["vim-mode"]) return;
   if (!isVimCodingPage()) return;
-  vimDesiredEnabled = true;
-  injectVimBridge();
-  postVimState(true);
+  requestVimEnable();
 }
