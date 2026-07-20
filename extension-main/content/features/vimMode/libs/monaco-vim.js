@@ -1,4 +1,15 @@
-/* Vendored from monaco-vim@0.4.4 (MIT). See LICENSE-monaco-vim. Do not edit. */
+/* Vendored from monaco-vim@0.4.4 (MIT). See LICENSE-monaco-vim.
+ *
+ * Scaler ships an AMD loader (window.define.amd), and monaco-vim's UMD wrapper
+ * would take the define()/AMD branch and never expose window.MonacoVim when we
+ * load it with a plain <script>. The wrapper below temporarily removes
+ * window.define so the UMD falls back to its global-export branch, then restores
+ * it. The upstream body between the markers is unmodified. */
+;(function () {
+  var __scalerppDefine = window.define;
+  window.define = undefined;
+  try {
+/* ---- upstream monaco-vim@0.4.4 begins ---- */
 (function(global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ?  factory(exports, require('monaco-editor/esm/vs/editor/editor.api')) :
   typeof define === 'function' && define.amd ? define(['exports', 'monaco-editor/esm/vs/editor/editor.api'], factory) :
@@ -9866,3 +9877,8 @@ exports.VimMode = keymap_vim_default;
 exports.initVimMode = initVimMode;
 });
 //# sourceMappingURL=monaco-vim.umd.js.map
+/* ---- upstream monaco-vim@0.4.4 ends ---- */
+  } finally {
+    window.define = __scalerppDefine;
+  }
+})();
