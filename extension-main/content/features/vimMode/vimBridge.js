@@ -65,7 +65,15 @@
       state.editor &&
       state.editor.getContainerDomNode &&
       state.editor.getContainerDomNode();
-    if (!container || !container.contains(target)) return false;
+    if (!container) return false;
+    // Handle Escape when focus is in the editor, or when it has already slipped
+    // to <body> before the key reached us — some setups (e.g. a CapsLock->Esc
+    // remap that emits Ctrl first) blur the editor a beat before Escape lands.
+    // Ignore it only when focus is genuinely in some other field.
+    const active = document.activeElement;
+    const inEditor = container.contains(target) || container.contains(active);
+    const looseBody = !active || active === document.body;
+    if (!inEditor && !looseBody) return false;
     window.MonacoVim.VimMode.Vim.handleKey(state.vim, "<Esc>", "user");
     if (state.editor.focus) state.editor.focus();
     return true;
