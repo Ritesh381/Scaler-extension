@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Scaler++",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "Bypass companion-mode on campus WiFi, spotlight search, download lecture recordings & declutter Scaler dashboard",
   "permissions": [
     "storage",
@@ -54,6 +54,17 @@
         "https://scaler.com/*"
       ],
       "js": [
+        "content/features/vimMode/vimEditorCapture.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.scaler.com/*",
+        "https://scaler.com/*"
+      ],
+      "js": [
         "content/cleaner/selectors.js",
         "content/core/settings.js",
         "content/core/styleInjector.js",
@@ -88,10 +99,12 @@
         "content/features/assignmentExport/downloader.js",
         "content/features/assignmentExport/exporter.js",
         "content/features/assignmentExport/assignmentExport.js",
+        "content/features/vimMode/vimMode.js",
         "content/content.js"
       ],
       "css": [
-        "content/features/liveStreamRecorder/liveStreamRecorder.css"
+        "content/features/liveStreamRecorder/liveStreamRecorder.css",
+        "content/features/vimMode/vimMode.css"
       ],
       "run_at": "document_idle"
     }
@@ -109,6 +122,8 @@
         "libs/agora-sdk.js",
         "content/features/liveStreamRecorder/recorderBridge.js",
         "content/features/assignmentExport/pageBridge.js",
+        "content/features/vimMode/libs/monaco-vim.js",
+        "content/features/vimMode/vimBridge.js",
         "fonts/figtree.woff2"
       ],
       "matches": [

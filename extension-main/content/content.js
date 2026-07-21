@@ -117,6 +117,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!value && typeof closeSpotlight === "function") {
         closeSpotlight();
       }
+    } else if (key === "vim-mode") {
+      if (typeof setVimEnabled === "function") setVimEnabled(value);
     } else if (key === "theme") {
       // Site-wide theme switch — value is a theme id ("off", "dark", ...)
       if (typeof applyTheme === "function") applyTheme(value);
@@ -249,6 +251,9 @@ window.addEventListener("load", async () => {
 
   // Initialize Spotlight Search (Ctrl+Space)
   if (typeof initSpotlightSearch === "function") initSpotlightSearch();
+
+  // Initialize Vim mode on coding problem pages
+  setTimeout(initVimMode, 1800);
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -285,6 +290,9 @@ handleUrlChange = function () {
 
   // Handle practice mode on URL change
   setTimeout(handlePracticeMode, 2000);
+
+  // Re-attach Vim mode when navigating between coding problems
+  setTimeout(initVimMode, 2000);
 
   // Check for assignment problem pages (LeetCode link)
   if (isAssignmentProblemPage()) {
