@@ -7,7 +7,7 @@
 // ============================================
 
 const VIM_PROBLEM_PATH =
-  /\/class\/\d+\/(assignment|homework_assignment)\/problems\/\d+(?:\/|$)/;
+  /\/class\/\d+\/(assignment|homework)\/problems\/\d+(?:[/?#]|$)/;
 
 /**
  * True when the given URL (default: current location) is a coding-problem
