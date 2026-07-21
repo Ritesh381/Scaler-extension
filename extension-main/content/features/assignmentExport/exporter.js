@@ -76,19 +76,53 @@ async function exportAssignment() {
 async function exportAllAssignments() {
     if (isExporting) return;
     isExporting = true;
+    
     // 1. Gather all problem URLs
-    const problemLinks = Array.from(document.querySelectorAll('a[href*="/assignment/problems/"]'))
+    // Prioritize searching within the sidebar to avoid false positives (e.g., breadcrumbs)
+    // Fall back to the entire document if a standard sidebar container isn't found.
+    const sidebar = document.querySelector('.cr-p-sidebar, aside, [class*="sidebar"]');
+    const container = sidebar || document;
+    
+    const rawLinks = Array.from(container.querySelectorAll('a[href*="/assignment/problems/"], a[href*="/homework/problems/"]'))
         .map(a => a.href)
         .filter(href => href.startsWith('http'));
         
-    const uniqueLinks = [...new Set(problemLinks)];
+    // 2. Canonicalize URLs
+    const canonicalLinks = rawLinks.map(href => {
+        try {
+            const url = new URL(href);
+            url.search = ''; // Remove query parameters
+            url.hash = '';   // Remove hash fragments
+            
+            // Split path into segments and remove empty strings (handles trailing slashes)
+            const parts = url.pathname.split('/').filter(Boolean);
+            
+            const problemsIdx = parts.indexOf('problems');
+            if (problemsIdx === -1 || problemsIdx + 1 >= parts.length) return null;
+            
+            const type = parts[problemsIdx - 1];
+            if (type !== 'assignment' && type !== 'homework') return null;
+            
+            // Reconstruct pathname up to the problem ID, dropping anything after (like /hints)
+            const canonicalParts = parts.slice(0, problemsIdx + 2);
+            url.pathname = '/' + canonicalParts.join('/');
+            
+            return url.href;
+        } catch (e) {
+            return null;
+        }
+    }).filter(Boolean);
+        
+    // 3. Deduplicate
+    const uniqueLinks = [...new Set(canonicalLinks)];
+    
     if (uniqueLinks.length === 0) {
         alert("Could not find other problems in the assignment sidebar.");
         isExporting = false;
         return;
     }
     
-    // 2. Initialize JSZip
+    // 4. Initialize JSZip
     let zip;
     try {
         zip = createZip();
@@ -114,7 +148,7 @@ async function exportAllAssignments() {
             .replace(/^\.+|\.+$/g, "")
             .trim() || "Assignment";
     
-    // 4. Iterate over links
+    // 5. Iterate over links
     for (let i = 0; i < uniqueLinks.length; i++) {
         updateExportButtonText(`Exporting ${i+1}/${uniqueLinks.length}...`);
         const url = uniqueLinks[i];
@@ -195,7 +229,7 @@ async function exportAllAssignments() {
     
     updateExportButtonText("Zipping...");
     
-    // 5. Download Zip
+    // 6. Download Zip
     const blob = await generateZipBlob(zip);
     downloadBlob(blob, `${safeSessionFolder}.zip`);
     
