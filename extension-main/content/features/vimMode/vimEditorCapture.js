@@ -8,14 +8,15 @@
 
 (function () {
   const store = (window.__scalerppVim = window.__scalerppVim || {
-    editors: [],
+    editors: new WeakMap(), // Track editors without preventing garbage collection
     last: null,
     hooked: false,
   });
 
   function record(editor) {
-    if (store.editors.includes(editor)) return;
-    store.editors.push(editor);
+    // Use WeakMap to track editors; they'll be automatically removed when garbage collected
+    if (store.editors.has(editor)) return;
+    store.editors.set(editor, true);
     store.last = editor;
     window.dispatchEvent(new CustomEvent("scalerpp-vim-editor"));
     // Tell the (isolated-world) orchestrator that monaco is live now, so it
@@ -62,15 +63,16 @@
   }
 
   const started = Date.now();
-  const poll = setInterval(() => {
+  let poll = setInterval(() => {
     if (store.hooked || hook(window.monaco) || Date.now() - started > 20000) {
       clearInterval(poll);
+      poll = null; // Clear reference for garbage collection
     }
   }, 50);
 
   // Answer the orchestrator's readiness query (covers the case where monaco
   // was already captured before its listener was set up).
-  window.addEventListener("message", (e) => {
+  const queryListener = (e) => {
     if (e.source !== window) return;
     const d = e.data;
     if (d && d.source === "scalerpp-vim-mode" && d.type === "query-monaco") {
@@ -81,23 +83,21 @@
         );
       }
     }
-  });
+  };
+  window.addEventListener("message", queryListener);
 
   // Scaler swallows a real Escape (the editor just blurs) before it reaches
   // monaco-vim, so insert -> normal never happens. Registering here at
   // document_start puts this listener ahead of Scaler's, so we can hand Escape
   // to the vim bridge and stop the blur. The bridge only claims it while Vim is
   // on and the editor is focused; otherwise Escape passes through untouched.
-  window.addEventListener(
-    "keydown",
-    (e) => {
-      if (e.key !== "Escape" && e.keyCode !== 27) return;
-      const bridge = window.__scalerppVimBridge;
-      if (bridge && bridge.handleEscape && bridge.handleEscape(e.target)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-      }
-    },
-    true,
-  );
+  const escapeListener = (e) => {
+    if (e.key !== "Escape" && e.keyCode !== 27) return;
+    const bridge = window.__scalerppVimBridge;
+    if (bridge && bridge.handleEscape && bridge.handleEscape(e.target)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  };
+  window.addEventListener("keydown", escapeListener, true);
 })();

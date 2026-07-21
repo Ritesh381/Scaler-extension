@@ -14,6 +14,8 @@
     editor: null,
     statusNode: null,
     lineNumbersPrev: null,
+    messageListener: null,
+    editorListener: null,
   };
 
   function ensureStatusNode(editor) {
@@ -81,6 +83,18 @@
     }
   }
 
+  function cleanup() {
+    detach();
+    if (state.messageListener) {
+      window.removeEventListener("message", state.messageListener);
+      state.messageListener = null;
+    }
+    if (state.editorListener) {
+      window.removeEventListener("scalerpp-vim-editor", state.editorListener);
+      state.editorListener = null;
+    }
+  }
+
   // Called by the document_start Escape interceptor in vimEditorCapture.js.
   // Returns true when we've handled the key (so the caller suppresses Scaler's
   // blur): only while Vim is attached and focus is inside this editor.
@@ -104,7 +118,7 @@
     return true;
   }
 
-  window.addEventListener("message", (event) => {
+  state.messageListener = (event) => {
     if (event.source !== window) return;
     const data = event.data;
     if (!data || data.source !== "scalerpp-vim") return;
@@ -115,16 +129,19 @@
       state.enabled = false;
       detach();
     }
-  });
+  };
+  window.addEventListener("message", state.messageListener);
 
   // Re-attach when the capture shim reports a new editor (SPA navigation).
-  window.addEventListener("scalerpp-vim-editor", () => {
+  state.editorListener = () => {
     if (state.enabled) attach();
-  });
+  };
+  window.addEventListener("scalerpp-vim-editor", state.editorListener);
 
   window.__scalerppVimBridge = {
     attach,
     detach,
+    cleanup,
     handleEscape,
     get enabled() {
       return state.enabled;

@@ -20,8 +20,10 @@ function isVimCodingPage(url) {
 let vimBridgeInjected = false;
 let vimDesiredEnabled = false;
 let monacoReady = false;
+let pendingAttempts = [];
+let messageListener = null;
 
-window.addEventListener("message", (event) => {
+function handleVimMessage(event) {
   if (event.source !== window) return;
   const data = event.data;
   if (!data) return;
@@ -39,7 +41,10 @@ window.addEventListener("message", (event) => {
       postVimState(true);
     }
   }
-});
+}
+
+messageListener = handleVimMessage;
+window.addEventListener("message", messageListener);
 
 /**
  * Inject the page-world bridge and vendored library once. They stay resident;
@@ -86,9 +91,20 @@ function requestVimEnable() {
       return;
     }
     window.postMessage({ source: "scalerpp-vim-mode", type: "query-monaco" }, "*");
-    if (remaining > 0) setTimeout(() => attempt(remaining - 1), 400);
+    if (remaining > 0) {
+      const timeout = setTimeout(() => attempt(remaining - 1), 400);
+      pendingAttempts.push(timeout);
+    }
   };
   attempt(25);
+}
+
+/**
+ * Cancel all pending timeouts from requestVimEnable.
+ */
+function cancelPendingAttempts() {
+  pendingAttempts.forEach(clearTimeout);
+  pendingAttempts = [];
 }
 
 /**
@@ -99,7 +115,19 @@ function setVimEnabled(enabled) {
   if (enabled) {
     requestVimEnable();
   } else {
+    cancelPendingAttempts();
     postVimState(false);
+  }
+}
+
+/**
+ * Cleanup: remove event listeners when extension is unloaded.
+ */
+function cleanupVimMode() {
+  cancelPendingAttempts();
+  if (messageListener) {
+    window.removeEventListener("message", messageListener);
+    messageListener = null;
   }
 }
 
