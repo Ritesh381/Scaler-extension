@@ -50,6 +50,7 @@ const DEFAULT_SETTINGS = {
 
   // Assignment
   companion: true,
+  "assignment-export": false,
 
   // Spotlight Search
   "spotlight-search": true,
@@ -86,6 +87,7 @@ const TOGGLE_MAP = {
   "toggle-join-session": "join-session",
   "toggle-companion-bypass": "companion-bypass",
   "toggle-companion": "companion",
+  "toggle-assignment-export": "assignment-export",
   "toggle-subject-sort": "subject-sort",
   "toggle-live-stream-recorder": "live-stream-recorder",
   "toggle-video-downloader": "video-downloader",

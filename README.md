@@ -45,6 +45,13 @@ Automatically detects assignment problems and adds a **direct link** to the corr
 
 Credits - Siddhanth kapoor
 
+## 📦 Assignment Export
+
+Export your assignment problems, MCQs, and written code directly to formatted Markdown files for offline review or archiving.
+- Click **Export** to download the current problem.
+- Select **Export All (ZIP)** to seamlessly scrape and package your entire assignment session into a cleanly structured ZIP archive.
+- Runs 100% locally in your browser. No backend required. Supports Coding, Single Correct, and Multiple Correct MCQs.
+
 ## 📘 Lecture Info
 
 Show session metadata (title, date, instructor/company, rating) directly on class session pages and dashboard cards for quick reference.
