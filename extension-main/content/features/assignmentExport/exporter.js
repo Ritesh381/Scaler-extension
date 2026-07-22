@@ -78,12 +78,8 @@ async function exportAllAssignments() {
     isExporting = true;
     
     // 1. Gather all problem URLs
-    // Prioritize searching within the sidebar to avoid false positives (e.g., breadcrumbs)
-    // Fall back to the entire document if a standard sidebar container isn't found.
-    const sidebar = document.querySelector('.cr-p-sidebar, aside, [class*="sidebar"]');
-    const container = sidebar || document;
-    
-    const rawLinks = Array.from(container.querySelectorAll('a[href*="/assignment/problems/"], a[href*="/homework/problems/"]'))
+    // Scan the entire document as strict URL canonicalization prevents duplicate/false exports
+    const rawLinks = Array.from(document.querySelectorAll('a[href*="/assignment/problems/"], a[href*="/homework/problems/"]'))
         .map(a => a.href)
         .filter(href => href.startsWith('http'));
         
