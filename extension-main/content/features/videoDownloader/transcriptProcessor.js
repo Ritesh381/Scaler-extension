@@ -200,17 +200,33 @@ async function validateApiKey(baseUrl, apiKey, modelName) {
         body: formData,
       });
 
-      // Only a 401/403 conclusively means a bad key
+      let bodyText = "";
+      try {
+        bodyText = await res.text();
+      } catch (_) {}
+      const detail = bodyText ? ": " + bodyText : "";
+
+      // 401/403 — bad key.
       if (res.status === 401 || res.status === 403) {
-        let bodyText = "";
-        try {
-          bodyText = await res.text();
-        } catch (_) {}
-        const errorMsg = `HTTP ${res.status}${bodyText ? ": " + bodyText : ""}`;
+        const errorMsg = `HTTP ${res.status}${detail}`;
         log(`❌ API key check failed. Detail: ${errorMsg}`);
         return { ok: false, reason: errorMsg };
       }
-      return { ok: true }; // any other status — key is accepted
+      // 404 — the Base URL isn't a real transcription endpoint.
+      if (res.status === 404) {
+        const errorMsg = `HTTP 404 — endpoint not found. Check the Base URL points to /audio/transcriptions${detail}`;
+        log(`❌ ${errorMsg}`);
+        return { ok: false, reason: errorMsg };
+      }
+      // 400 mentioning the model — the model name is rejected by the provider.
+      if (res.status === 400 && /\bmodel\b/i.test(bodyText)) {
+        const errorMsg = `Model rejected by provider${detail}`;
+        log(`❌ ${errorMsg}`);
+        return { ok: false, reason: errorMsg };
+      }
+      // Any other status (e.g. 400 "audio too short" from the silent probe) —
+      // the key/URL/model are accepted; let real transcription proceed.
+      return { ok: true };
     }
 
     if (!res.ok) {
@@ -238,6 +254,55 @@ async function validateApiKey(baseUrl, apiKey, modelName) {
     console.warn("[Scaler++] API key health check network error:", e.message);
     return { ok: true };
   }
+}
+
+/**
+ * Synchronous, no-network validation for the "Custom (OpenAI Compatible API)"
+ * provider. The named providers auto-fill a correct full endpoint URL, but in
+ * custom mode the user types everything by hand — so guard against the common
+ * mistakes: an unparseable URL, a base URL that isn't the transcription
+ * endpoint (e.g. ".../v1" instead of ".../v1/audio/transcriptions"), and a
+ * missing model.
+ *
+ * Returns { ok: true, warnSuggestedUrl? } or { ok: false, reason: string }.
+ * `warnSuggestedUrl` is a soft signal — the caller confirms before proceeding.
+ */
+function validateCustomInputs(baseUrl, modelName) {
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch (_) {
+    return {
+      ok: false,
+      reason:
+        "Base URL is not a valid URL.\nExample: https://api.openai.com/v1/audio/transcriptions",
+    };
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return { ok: false, reason: "Base URL must start with https:// (or http://)." };
+  }
+
+  if (!modelName) {
+    return {
+      ok: false,
+      reason:
+        "Model Name is required for a custom provider.\nExamples: whisper-1, gpt-4o-mini-transcribe",
+    };
+  }
+  if (/\s/.test(modelName)) {
+    return { ok: false, reason: "Model Name must not contain spaces." };
+  }
+
+  // OpenAI-compatible transcription lives at /audio/transcriptions. If the path
+  // doesn't end there, it's almost certainly a base URL missing the endpoint —
+  // surface a suggested fix but let the user override (some proxies differ).
+  const result = { ok: true };
+  if (!/\/audio\/transcriptions\/?$/.test(parsed.pathname)) {
+    result.warnSuggestedUrl =
+      parsed.origin + parsed.pathname.replace(/\/+$/, "") + "/audio/transcriptions";
+  }
+  return result;
 }
 
 function log(msg) {
@@ -635,6 +700,30 @@ startBtn.addEventListener("click", async () => {
   if (!baseUrl || !apiKey) {
     alert("Please provide both Base URL and API Key.");
     return;
+  }
+
+  // Custom provider is hand-entered — validate URL/endpoint/model before we
+  // burn time downloading audio only to fail on a malformed request.
+  if (providerSelect.value === "custom") {
+    const v = validateCustomInputs(baseUrl, modelName);
+    if (!v.ok) {
+      alert(v.reason);
+      return;
+    }
+    if (
+      v.warnSuggestedUrl &&
+      !confirm(
+        "This Base URL doesn't look like an OpenAI-compatible transcription " +
+          'endpoint (expected it to end in "/audio/transcriptions").\n\n' +
+          `Did you mean:\n${v.warnSuggestedUrl}\n\n` +
+          "Continue with the URL exactly as entered?",
+      )
+    ) {
+      baseUrlInput.value = v.warnSuggestedUrl;
+      saveConfig();
+      statusText.innerText = "Base URL updated — press Start Transcription again.";
+      return;
+    }
   }
 
   try {
