@@ -18,9 +18,7 @@ const PROBLEM_FILTER_STYLE_ID = "scaler-problem-filter-styles";
  * feature-local fallback makes this file safer if load order changes.
  */
 function isProblemFilterPage() {
-  return /\/academy\/mentee-dashboard\/class\/\d+\/assignment\/problems\/?$/.test(
-    location.pathname,
-  );
+  return typeof isProblemsPage === "function" && isProblemsPage();
 }
 
 /**
@@ -194,14 +192,17 @@ function getProblemDifficulty(row) {
 }
 
 /**
- * Extract solved/unsolved status.
+ * Extract problem status such as solved, attempted, or unsolved.
  */
 function getProblemStatus(row) {
   const statusText = row.children[4]?.textContent.trim().toLowerCase() || "";
 
-  // Check unsolved first because "unsolved" contains "solved".
   if (statusText.includes("unsolved")) {
     return "unsolved";
+  }
+
+  if (statusText.includes("attempted")) {
+    return "attempted";
   }
 
   if (statusText.includes("solved")) {
@@ -508,6 +509,7 @@ function injectProblemFilters() {
       >
         <option value="all">All Statuses</option>
         <option value="solved">Solved</option>
+        <option value="attempted">Attempted</option>
         <option value="unsolved">Unsolved</option>
       </select>
 
