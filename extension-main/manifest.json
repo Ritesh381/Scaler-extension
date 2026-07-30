@@ -46,7 +46,8 @@
       "js": [
         "content/core/themePreload.js"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "world": "ISOLATED"
     },
     {
       "matches": [
@@ -106,7 +107,8 @@
         "content/features/liveStreamRecorder/liveStreamRecorder.css",
         "content/features/vimMode/vimMode.css"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "world": "ISOLATED"
     }
   ],
   "icons": {
