@@ -45,12 +45,13 @@ function injectProblemFilterStyles() {
 
   style.textContent = `
     .scaler-problem-filters {
-      margin: 12px 0;
-      padding: 14px 16px;
-      background: #ffffff;
-      border: 1px solid #e0e0e0;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      margin: 0 0 12px;
+      padding: 8px 0 10px;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid #e5e7eb;
+      border-radius: 0;
+      box-shadow: none;
       font-family: inherit;
     }
 
@@ -58,24 +59,25 @@ function injectProblemFilterStyles() {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 10px;
+      margin-bottom: 8px;
     }
 
     .scaler-filter-label {
-      color: #1f2937;
-      font-size: 14px;
+      color: #374151;
+      font-size: 13px;
       font-weight: 600;
+      line-height: 1.4;
     }
 
     #scaler-filter-count {
       color: #6b7280;
-      font-size: 13px;
+      font-size: 12px;
       white-space: nowrap;
     }
 
     #scaler-filter-count strong {
-      color: #2563eb;
+      color: #111827;
       font-weight: 600;
     }
 
@@ -83,19 +85,20 @@ function injectProblemFilterStyles() {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 8px;
     }
 
     .scaler-filter-controls select {
-      min-width: 140px;
-      height: 38px;
-      padding: 0 32px 0 12px;
+      min-width: 120px;
+      height: 32px;
+      padding: 0 28px 0 10px;
       background: #ffffff;
       border: 1px solid #d1d5db;
-      border-radius: 7px;
+      border-radius: 4px;
       color: #374151;
       font-family: inherit;
       font-size: 13px;
+      line-height: 1.2;
       outline: none;
       cursor: pointer;
       transition:
@@ -109,15 +112,15 @@ function injectProblemFilterStyles() {
 
     .scaler-filter-controls select:focus {
       border-color: #2563eb;
-      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+      box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.12);
     }
 
     #scaler-filter-reset {
-      height: 38px;
-      padding: 0 16px;
-      background: #f3f4f6;
+      height: 32px;
+      padding: 0 12px;
+      background: #ffffff;
       border: 1px solid #d1d5db;
-      border-radius: 7px;
+      border-radius: 4px;
       color: #374151;
       font-family: inherit;
       font-size: 13px;
@@ -129,12 +132,14 @@ function injectProblemFilterStyles() {
     }
 
     #scaler-filter-reset:hover {
-      background: #e5e7eb;
+      background: #f9fafb;
       border-color: #9ca3af;
     }
 
     #scaler-filter-reset:disabled {
-      opacity: 0.5;
+      background: #f9fafb;
+      border-color: #e5e7eb;
+      color: #9ca3af;
       cursor: default;
     }
 
@@ -142,9 +147,10 @@ function injectProblemFilterStyles() {
       display: none !important;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 960px) {
       .scaler-filter-controls select {
-        flex: 1 1 150px;
+        flex: 1 1 140px;
+        min-width: 0;
       }
 
       #scaler-filter-reset {
