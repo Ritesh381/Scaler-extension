@@ -45,8 +45,8 @@ function injectProblemFilterStyles() {
 
   style.textContent = `
     .scaler-problem-filters {
-      margin: 0 0 12px;
-      padding: 8px 0 10px;
+      margin: 0 0 8px;
+      padding: 6px 0 8px;
       background: transparent;
       border: 0;
       border-bottom: 1px solid #e5e7eb;
@@ -60,12 +60,12 @@ function injectProblemFilterStyles() {
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
 
     .scaler-filter-label {
-      color: #374151;
-      font-size: 13px;
+      color: #4b5563;
+      font-size: 15px;
       font-weight: 600;
       line-height: 1.4;
     }
@@ -73,11 +73,12 @@ function injectProblemFilterStyles() {
     #scaler-filter-count {
       color: #6b7280;
       font-size: 12px;
+      font-weight: 500;
       white-space: nowrap;
     }
 
     #scaler-filter-count strong {
-      color: #111827;
+      color: #6b7280;
       font-weight: 600;
     }
 
@@ -118,27 +119,28 @@ function injectProblemFilterStyles() {
     #scaler-filter-reset {
       height: 32px;
       padding: 0 12px;
-      background: #ffffff;
-      border: 1px solid #d1d5db;
+      background: transparent;
+      border: 1px solid transparent;
       border-radius: 4px;
-      color: #374151;
+      color: #4b5563;
       font-family: inherit;
       font-size: 13px;
       font-weight: 500;
       cursor: pointer;
       transition:
         background 0.2s ease,
+        color 0.2s ease,
         border-color 0.2s ease;
     }
 
     #scaler-filter-reset:hover {
-      background: #f9fafb;
-      border-color: #9ca3af;
+      background: #f3f4f6;
+      color: #111827;
     }
 
     #scaler-filter-reset:disabled {
-      background: #f9fafb;
-      border-color: #e5e7eb;
+      background: transparent;
+      border-color: transparent;
       color: #9ca3af;
       cursor: default;
     }
