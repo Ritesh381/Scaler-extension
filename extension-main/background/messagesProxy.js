@@ -11,7 +11,13 @@ const BACKEND_BASE_URL = "https://scalerbackend.vercel.app";
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Fetch custom messages ────────────────────────────────
   if (message.action === "fetchCustomMessages") {
-    fetch(`${BACKEND_BASE_URL}/api/messages/active`)
+    // The email lets the backend filter audience-targeted messages
+    // (batch / email domain / specific user). Omitted -> broadcast only.
+    const query = message.email
+      ? `?email=${encodeURIComponent(message.email)}`
+      : "";
+
+    fetch(`${BACKEND_BASE_URL}/api/messages/active${query}`)
       .then((res) => res.json())
       .then((data) => {
         sendResponse(data);

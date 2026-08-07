@@ -1,33 +1,47 @@
 /**
  * Checks for custom messages from Scaler++ backend and injects them into the header.
+ *
+ * The cached profile email (chrome.storage.sync -> scaler_user, written by
+ * usernameTracker.js) is forwarded so the backend can return audience-targeted
+ * messages (specific batch / email domain / individual user). With no cached
+ * email yet, the backend replies with broadcast messages only.
  */
 
 async function initCustomMessages() {
   try {
-    chrome.runtime.sendMessage(
-      { action: "fetchCustomMessages" },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            "Scaler++: Error connecting to background script",
-            chrome.runtime.lastError,
-          );
-          return;
-        }
+    chrome.storage.sync.get(["scaler_user"], (result) => {
+      if (chrome.runtime.lastError || !chrome.runtime?.id) return;
 
-        if (
-          response &&
-          response.success &&
-          response.data &&
-          response.data.length > 0
-        ) {
-          processMessages(response.data);
-        }
-      },
-    );
+      const email = result?.scaler_user?.email || null;
+      fetchCustomMessages(email);
+    });
   } catch (error) {
     console.error("Scaler++: Error initializing custom messages fetch", error);
   }
+}
+
+function fetchCustomMessages(email) {
+  chrome.runtime.sendMessage(
+    { action: "fetchCustomMessages", email },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error(
+          "Scaler++: Error connecting to background script",
+          chrome.runtime.lastError,
+        );
+        return;
+      }
+
+      if (
+        response &&
+        response.success &&
+        response.data &&
+        response.data.length > 0
+      ) {
+        processMessages(response.data);
+      }
+    },
+  );
 }
 
 function processMessages(messages) {
