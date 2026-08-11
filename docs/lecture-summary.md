@@ -1,0 +1,127 @@
+# AI Lecture Notes ("Notes" tab)
+
+**Setting key:** `lecture-summary` (default `true`)
+**Code:** [content/features/lectureSummary.js](../extension-main/content/features/lectureSummary.js)
+(tab, panel, rendering, generate flow) ·
+[background/summaryProxy.js](../extension-main/background/summaryProxy.js) (cache + LLM proxy)
+**Page:** a class session page — `/academy/mentee-dashboard/class/{id}…` **without**
+`joinSession=1`
+
+## What it does
+
+Adds a **Notes** tab to the session page that shows an AI-written summary of the lecture:
+a story-telling "Lecture Brief" plus bulleted Announcements, Deadlines, Topics Taught and Key
+Takeaways. Summaries are cached on the Scaler++ backend, so the first student to generate one
+makes it free for everyone else. Generation uses the **user's own** OpenAI-compatible API key.
+
+## Identity: one key per lecture
+
+`_resolveLecture()` reads `classId` from the path and calls
+`https://www.scaler.com/api/v2/classroom/{classId}/meta`, taking `attributes.slug` and preferring
+`attributes.current_topic.title` for the display title. The **slug is the same key the transcript
+feature uses**, so a lecture's transcript and its notes share one identifier. Results are cached
+per URL in `_lectureCache`.
+
+## What happens when the tab opens (`_loadSummary`)
+
+1. Render "Loading summary…".
+2. No slug → *"Couldn't identify this lecture"*.
+3. `checkSummaryCache` → cached summary found? Render it. Done.
+4. `checkTranscriptCache` → transcript cached? Render the **Generate Notes** screen (and stash the
+   transcript text in `_transcriptTextCache`).
+5. Neither → render **Generate Transcript** first, whose button navigates to the same URL with
+   `joinSession=1`, where the recording/transcript tool lives.
+
+## Generate flow (`_onGenerate`)
+
+1. Read `scaler_summary_config` from `chrome.storage.local`. Missing Base URL or API key → re-render
+   with the settings popover open and a warning.
+2. Get the transcript (memory cache, else `checkTranscriptCache`).
+3. `generateSummary` → the service worker.
+4. On success: render, then fire-and-forget `saveSummary` with `{ slug, classId, title, summary,
+   model, generatedBy: <user email> }` (the backend is first-write-wins).
+5. On failure: re-render Generate with the error. `_isTooLargeError()` recognises context-window /
+   payload errors across OpenAI, Gemini, Groq, OpenRouter and Claude wording and swaps in a
+   friendlier "this transcript is bigger than your model's context — try a bigger-context model"
+   message.
+
+## The LLM call (`summaryProxy.js`)
+
+Runs in the service worker so the scaler.com page CSP (`connect-src`) can't block the user's
+endpoint.
+
+- `buildChatCompletionsUrl()` normalises whatever the user typed — a bare host or `/v1` gets
+  `/chat/completions` appended; a full endpoint is left alone.
+- Transcript is truncated to `SUMMARY_MAX_TRANSCRIPT_CHARS = 120_000` (~30k tokens).
+- Request body is deliberately minimal — `model`, `messages`, `response_format: {type:
+  "json_object"}`. No `temperature` or other tuning params, because some models reject any
+  non-default value. If a provider 400s specifically about `response_format`, the call is retried
+  once **without** it.
+- `SUMMARY_SYSTEM_PROMPT` demands a JSON object with exactly:
+  `brief` (array of `{title, body}` concepts in teaching order, flowing prose, multi-paragraph),
+  `topics`, `notes`, `deadlines`, `announcements` (arrays of short strings), and forbids inventing
+  facts not in the transcript.
+- `parseSummaryJson()` survives models that wrap output in ``` fences or add prose: strip fences,
+  else take the first balanced `{ … }` block.
+- `normaliseSummaryShape()` coerces everything into the fixed shape — a bare string brief becomes
+  `[{title:"", body}]`, non-string array items are stringified, empties dropped. The same
+  normalisation exists page-side (`_normaliseBrief`) so legacy cached shapes still render.
+
+## Settings popover
+
+Gear button → `_toggleSettings()`. Provider preset dropdown (OpenAI, Google Gemini, Groq,
+OpenRouter, Claude, Custom) autofills Base URL + Model and swaps the "Get API Key ↗" link;
+Base URL / Model / API key inputs write straight to `chrome.storage.local` on every keystroke.
+The popover states plainly that the key stays in the browser and is never sent to Scaler++
+servers.
+
+The gear is **hidden once notes exist** (`_panelContentRoot(panel, { showGear: false })`) — there
+is nothing left to configure.
+
+## Rendering
+
+One injected stylesheet (`#scaler-notes-styles`) — needed for `:hover`, custom bullets and
+typography that inline styles can't express. Display order is
+`announcements → deadlines → topics → brief → notes`: action items first, narrative in the middle,
+takeaways last. Each bulleted section has its own icon, badge colour and dot colour
+(`SECTION_META`). The brief renders as titled concept blocks split on blank lines into `<p>`s —
+prose, never bullets. A footer credits `Generated by <email> · Model: <model>`.
+
+A download control next to the title offers **Transcript (.txt)** (from the shared cache) and
+**Notes (.md)** — `_buildNotesMarkdown()` compiles the same structure into a Markdown document.
+Blob URLs are revoked after 1 s.
+
+## Tab and panel plumbing
+
+Mirrors [instructor-info.md](instructor-info.md) and has to cooperate with it:
+
+- `_ensureSummaryTab()` inserts a `Notes` tab into `.navigation-tabs`, **before** the Instructor
+  Info tab if it already exists (so Notes always comes first).
+- `_ensureSummaryPanel()` creates `#scaler-summary-panel` next to `.me-cr-lecture-container`.
+- Activating hides the lecture container (`_setLectureContainerVisible(false)`) and deactivates the
+  instructor panel. The hide is deferred with `setTimeout(…, 0)` so it **wins over** the instructor
+  feature's bubbled nav handler, which re-shows the container on any non-instructor tab click.
+- `_setLectureContainerVisible(true)` never restores a saved value of `"none"` — that value can
+  leak in if the instructor panel had the container hidden when we captured it.
+- A shared `.navigation-tabs` click handler (guarded by `dataset.scalerSummaryNav`) deactivates
+  the Notes panel when another tab is clicked, restoring the container only if the click wasn't
+  the instructor tab.
+
+**Observer strategy** is leading-edge, not debounced: the observer acts only while the tab is
+*missing*, which avoids both debounce starvation on continuously-mutating pages and hammering
+once the tab exists. A stale observer is always disconnected and re-targeted rather than reused.
+A bounded fallback poll (`_scheduleTabRetries`, 40 × 500 ms ≈ 20 s) covers slow loads.
+
+## Teardown
+
+`_teardownSession()` (called by `initLectureSummary()` off a session page) disconnects the
+observer, clears the retry interval, deactivates the tab restoring the container, and removes both
+the tab and the panel. `content.js` key `lecture-summary` does the same on toggle-off.
+
+## Limits
+
+- Requires a cached transcript. No transcript → the feature can only point you at the transcript
+  tool.
+- Quality and cost are the user's model's; nothing is verified against the lecture.
+- Transcripts over ~120k characters are truncated before summarising.
+- Backend cache is first-write-wins: a poor summary can't be replaced from the UI.

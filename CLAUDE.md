@@ -141,6 +141,33 @@ A change is not done until the docs match it:
 - **Feature-details.md** and popup copy — keep in sync with what actually ships.
 - Bump `version` in `extension-main/manifest.json` for a release-worthy change.
 
+### Update docs the moment a feature or fix converges
+
+Do not batch docs to the end of a long session, and do not wait to be asked. As soon as a feature or
+fix **converges** — the code works, the toggle round-trips both ways, and `npm test` in `tests/`
+passes — write the docs for it in that same change, before moving on to the next piece of work.
+
+Converged means: you stopped iterating on the behaviour. That is the checkpoint where you know what
+actually shipped, so that is when the docs are cheapest and most accurate to write.
+
+At that checkpoint, in order:
+
+1. Update `README.md` if anything is user-visible.
+2. Create or update `docs/<feature>.md` (architecture, data flow, teardown, intentional limitations).
+   Existing examples: `docs/architecture.md`, `docs/assignment-export.md`, `docs/calendar-sync.md`,
+   `docs/companion-bypass.md`, `docs/dom-cleaner.md`, `docs/leetcode-link.md`,
+   `docs/problem-search.md`.
+3. Sync `Feature-details.md` + popup copy.
+4. Update `CONTRIBUTING.md` / `CLAUDE.md` if structure, conventions, or commands moved.
+5. Bump `version` in `extension-main/manifest.json` if release-worthy.
+
+Then commit code and docs together (or as a `docs:` commit immediately after on the same branch) so
+no commit on the branch describes behaviour that the docs contradict.
+
+If a subsequent iteration changes that behaviour again, re-run the same checkpoint — docs get updated
+every time the feature re-converges, not once per PR. Reviewers treat a stale doc the same as a
+failing test.
+
 ## Git & PR workflow
 
 Branch off `main`: `feature/<name>`, `fix/<name>`, `docs/<name>`. Never commit to `main` directly.
