@@ -13,6 +13,7 @@ message routing, SPA handling. Every feature doc assumes it.
 | [leetcode-link.md](leetcode-link.md) — LeetCode badge with confidence matching | `leetcode-link` | on |
 | [problem-search.md](problem-search.md) — filter bar on the problems page | `problem-search` | on |
 | [problem-picker.md](problem-picker.md) — Pick Random unsolved problem | `problem-picker` | on |
+| [smart-revision.md](smart-revision.md) — spaced-repetition queue for solved problems | `revision-tracker` | on |
 | [practice-mode.md](practice-mode.md) — auto-reset assignment code | `practice-mode` | off |
 | [join-session-button.md](join-session-button.md) — live-class join button | `join-session` | on |
 | [subject-sort.md](subject-sort.md) — Core vs Other curriculum split | `subject-sort` | on |

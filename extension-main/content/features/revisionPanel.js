@@ -69,8 +69,9 @@ function _srpRenderItems(due, listEl, countEl) {
       const pid = btn.dataset.pid;
       const url = btn.dataset.url;
 
-      // Open problem in new tab
-      window.open(url, "_blank");
+      // Open problem in new tab. "noopener" matters: without it the new tab
+      // keeps a live window.opener handle back to the dashboard.
+      window.open(url, "_blank", "noopener");
 
       // Advance stage in storage
       try {

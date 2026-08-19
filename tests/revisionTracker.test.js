@@ -1,129 +1,81 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { loadFeature, makeChrome, makeFetch, tick } = require("./helpers/harness");
+const { loadFeature, makeChrome, tick } = require("./helpers/harness");
 
 const FEATURE = "content/features/revisionTracker.js";
 
 const REVISION_LOG_KEY = "scalerpp_revision_log";
-const REVISION_SEEDED_KEY = "scalerpp_revision_seeded";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-function makeApiProblem(overrides = {}) {
-  return {
-    ib_problem_id: 1001,
-    title: "Two Sum",
-    status: "solved",
-    type: "assignment",
-    sbat_id: 500,
-    ...overrides,
-  };
-}
+const PROBLEM_URL =
+  "https://www.scaler.com/academy/mentee-dashboard/class/500/assignment/problems/1001";
 
 function makeLogEntry(overrides = {}) {
   const now = Date.now();
   return {
     title: "Two Sum",
-    url: "https://www.scaler.com/academy/mentee-dashboard/class/500/assignment/problems/1001",
-    solvedAt: now - 2 * 86400000,
+    url: PROBLEM_URL,
+    ib_problem_id: "1001",
+    solvedAt: now - 2 * DAY_MS,
     intervals: [1, 3, 7, 14, 30],
     stage: 0,
-    nextDue: now - 86400000,
+    nextDue: now - DAY_MS,
     ...overrides,
   };
 }
 
-function load() {
+// The queue is USER-controlled: problems enter it only via the "Mark for
+// Revision" button (revisionMarker.js), never by polling Scaler's API.
+function load(localStore = {}, globals = {}) {
+  const chrome = makeChrome({ localStore });
   return loadFeature(FEATURE, {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
     globals: {
       isExtensionValid: () => true,
       currentSettings: { "revision-tracker": true },
+      ...globals,
     },
+    chrome,
   });
 }
 
-// ─── _getProblemTitle ─────────────────────────────────────────
-
-test("_getProblemTitle: uses name field when present", () => {
-  const { window } = load();
-  assert.equal(window._getProblemTitle({ name: "Binary Search", ib_problem_id: 1 }), "Binary Search");
-});
-
-test("_getProblemTitle: falls back to problem_name", () => {
-  const { window } = load();
-  assert.equal(window._getProblemTitle({ problem_name: "Merge Sort", ib_problem_id: 2 }), "Merge Sort");
-});
-
-test("_getProblemTitle: falls back to title", () => {
-  const { window } = load();
-  assert.equal(window._getProblemTitle({ title: "Two Sum", ib_problem_id: 3 }), "Two Sum");
-});
-
-test("_getProblemTitle: falls back to Problem #ID when no name field", () => {
-  const { window } = load();
-  assert.equal(window._getProblemTitle({ ib_problem_id: 999 }), "Problem #999");
-});
-
-// ─── _detectNewSolves ─────────────────────────────────────────
-
-test("_detectNewSolves: solved problem absent from log → detected", () => {
-  const { window } = load();
-  const result = window._detectNewSolves([makeApiProblem()], {});
-  assert.equal(result.length, 1);
-  assert.equal(result[0].ib_problem_id, 1001);
-});
-
-test("_detectNewSolves: already in log → not detected", () => {
-  const { window } = load();
-  const log = { "1001": makeLogEntry() };
-  assert.equal(window._detectNewSolves([makeApiProblem()], log).length, 0);
-});
-
-test("_detectNewSolves: unsolved status → not detected", () => {
-  const { window } = load();
-  assert.equal(window._detectNewSolves([makeApiProblem({ status: "unsolved" })], {}).length, 0);
-});
-
-test("_detectNewSolves: null status → not detected", () => {
-  const { window } = load();
-  assert.equal(window._detectNewSolves([makeApiProblem({ status: null })], {}).length, 0);
-});
-
-test("_detectNewSolves: non-standard solved status (completed) → detected", () => {
-  const { window } = load();
-  assert.equal(window._detectNewSolves([makeApiProblem({ status: "completed" })], {}).length, 1);
-});
-
 // ─── _buildEntry ──────────────────────────────────────────────
 
-test("_buildEntry: uses fallback title when API has no name", () => {
+test("_buildEntry: keeps the supplied title", () => {
   const { window } = load();
-  const problem = { ib_problem_id: 7777, type: "assignment", sbat_id: 1, status: "solved" };
-  const entry = window._buildEntry(problem);
-  assert.equal(entry.title, "Problem #7777");
+  const e = window._buildEntry("Two Sum", PROBLEM_URL, 1001);
+  assert.equal(e.title, "Two Sum");
+  assert.equal(e.url, PROBLEM_URL);
 });
 
-test("_buildEntry: stage 0 and nextDue 1 day out by default", () => {
+test("_buildEntry: falls back to Problem #ID when title is missing", () => {
   const { window } = load();
-  const before = Date.now();
-  const entry = window._buildEntry(makeApiProblem());
-  const after = Date.now();
-  assert.equal(entry.stage, 0);
-  assert.ok(entry.nextDue >= before + 86400000);
-  assert.ok(entry.nextDue <= after + 86400000);
-  assert.ok(entry.url.includes("1001"));
+  assert.equal(window._buildEntry("", PROBLEM_URL, 1001).title, "Problem #1001");
+  assert.equal(window._buildEntry(null, PROBLEM_URL, 1001).title, "Problem #1001");
 });
 
-test("_buildEntry: accepts custom nextDue for backfill", () => {
+test("_buildEntry: ib_problem_id is normalised to a string", () => {
+  // The log is keyed by string id; a numeric id here would key-collide oddly.
   const { window } = load();
-  const customDue = Date.now() - 1;
-  const entry = window._buildEntry(makeApiProblem(), customDue);
-  assert.equal(entry.nextDue, customDue);
+  assert.strictEqual(window._buildEntry("t", PROBLEM_URL, 1001).ib_problem_id, "1001");
 });
 
-test("_buildEntry: homework type uses 'homework' in URL", () => {
+test("_buildEntry: starts at stage 0, due one day out", () => {
   const { window } = load();
-  const entry = window._buildEntry(makeApiProblem({ type: "homework", ib_problem_id: 2002, sbat_id: 600 }));
-  assert.ok(entry.url.includes("homework"));
-  assert.ok(entry.url.includes("2002"));
+  const e = window._buildEntry("Two Sum", PROBLEM_URL, 1001);
+  assert.equal(e.stage, 0);
+  assert.deepEqual(Array.from(e.intervals), [1, 3, 7, 14, 30]);
+  assert.ok(e.nextDue > Date.now() + 0.9 * DAY_MS);
+  assert.ok(e.nextDue < Date.now() + 1.1 * DAY_MS);
+});
+
+test("_buildEntry: returns its own intervals copy, not the shared constant", () => {
+  // Two entries must not share one array — mutating one would reschedule both.
+  const { window } = load();
+  const a = window._buildEntry("a", PROBLEM_URL, 1);
+  const b = window._buildEntry("b", PROBLEM_URL, 2);
+  a.intervals.push(99);
+  assert.deepEqual(Array.from(b.intervals), [1, 3, 7, 14, 30]);
 });
 
 // ─── _getDueToday ─────────────────────────────────────────────
@@ -138,8 +90,13 @@ test("_getDueToday: overdue entry included", () => {
 
 test("_getDueToday: future entry excluded", () => {
   const { window } = load();
-  const log = { "1001": makeLogEntry({ nextDue: Date.now() + 86400000 }) };
+  const log = { "1001": makeLogEntry({ nextDue: Date.now() + DAY_MS }) };
   assert.equal(window._getDueToday(log).length, 0);
+});
+
+test("_getDueToday: empty log yields an empty queue", () => {
+  const { window } = load();
+  assert.equal(window._getDueToday({}).length, 0);
 });
 
 // ─── _advanceStage ────────────────────────────────────────────
@@ -149,8 +106,8 @@ test("_advanceStage: increments stage and recalculates nextDue", () => {
   const entry = makeLogEntry({ stage: 0, intervals: [1, 3, 7, 14, 30] });
   const updated = window._advanceStage(entry);
   assert.equal(updated.stage, 1);
-  assert.ok(updated.nextDue > Date.now() + 2 * 86400000);
-  assert.ok(updated.nextDue < Date.now() + 4 * 86400000);
+  assert.ok(updated.nextDue > Date.now() + 2 * DAY_MS);
+  assert.ok(updated.nextDue < Date.now() + 4 * DAY_MS);
 });
 
 test("_advanceStage: returns null after last interval (graduation)", () => {
@@ -158,124 +115,101 @@ test("_advanceStage: returns null after last interval (graduation)", () => {
   assert.equal(window._advanceStage(makeLogEntry({ stage: 4 })), null);
 });
 
-// ─── Integration: initRevisionTracker ────────────────────────
-
-function makeProblemsResponse(problems) {
-  const obj = {};
-  problems.forEach((p) => { obj[p.ib_problem_id] = p; });
-  return { problems: obj };
-}
-
-function loadWithChrome(localStore = {}, fetchRouter = null) {
-  const chrome = makeChrome({ localStore });
-  const fetch = fetchRouter
-    ? makeFetch(fetchRouter)
-    : makeFetch(() => ({ ok: false, status: 401 }));
-  return loadFeature(FEATURE, {
-    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
-    globals: {
-      isExtensionValid: () => true,
-      currentSettings: { "revision-tracker": true },
-    },
-    chrome,
-    fetch,
-  });
-}
-
-test("feature off → fetch never called", async () => {
-  let fetched = false;
-  const { window } = loadFeature(FEATURE, {
-    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
-    globals: {
-      isExtensionValid: () => true,
-      currentSettings: { "revision-tracker": false },
-    },
-    fetch: async () => { fetched = true; return { ok: true, json: async () => ({ problems: {} }) }; },
-    chrome: makeChrome(),
-  });
-  await window.initRevisionTracker();
-  assert.equal(fetched, false);
+test("_advanceStage: does not mutate the entry it is given", () => {
+  const { window } = load();
+  const entry = makeLogEntry({ stage: 1 });
+  const before = { ...entry };
+  window._advanceStage(entry);
+  assert.deepEqual(entry, before);
 });
 
-test("API failure → no throw, log unchanged", async () => {
-  const { window, chrome } = loadWithChrome({}, () => ({ ok: false, status: 401 }));
-  await window.initRevisionTracker();
-  assert.equal(chrome.__local[REVISION_LOG_KEY], undefined);
-});
+// ─── markProblemForRevision (public API) ──────────────────────
 
-test("network error → no throw", async () => {
-  const { window } = loadFeature(FEATURE, {
-    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
-    globals: { isExtensionValid: () => true, currentSettings: { "revision-tracker": true } },
-    fetch: async () => { throw new Error("Network error"); },
-    chrome: makeChrome(),
-  });
-  await assert.doesNotReject(() => window.initRevisionTracker());
-});
-
-test("new solved problem → written to log with stage 0", async () => {
-  const problem = makeApiProblem({ ib_problem_id: 9001, title: "Binary Search", sbat_id: 200 });
-  const { window, chrome } = loadWithChrome(
-    {},
-    () => ({ ok: true, json: async () => makeProblemsResponse([problem]) })
-  );
-  await window.initRevisionTracker();
+test("markProblemForRevision: writes a new problem to the log", async () => {
+  const { window, chrome } = load();
+  const added = await window.markProblemForRevision("Two Sum", PROBLEM_URL, 1001);
   await tick();
-  const log = chrome.__local[REVISION_LOG_KEY];
-  assert.ok(log?.["9001"], "entry written");
-  assert.equal(log["9001"].stage, 0);
-  assert.equal(log["9001"].title, "Binary Search");
+  assert.equal(added, true);
+  const stored = await new Promise((r) =>
+    chrome.storage.local.get(REVISION_LOG_KEY, (v) => r(v[REVISION_LOG_KEY])),
+  );
+  assert.ok(stored["1001"], "entry stored under its string id");
+  assert.equal(stored["1001"].stage, 0);
+  assert.equal(stored["1001"].title, "Two Sum");
 });
 
-test("already-logged problem not overwritten", async () => {
-  const problem = makeApiProblem({ ib_problem_id: 9001 });
-  const existingEntry = makeLogEntry({ stage: 2, nextDue: Date.now() + 7 * 86400000 });
-  const { window, chrome } = loadWithChrome(
-    { [REVISION_LOG_KEY]: { "9001": existingEntry } },
-    () => ({ ok: true, json: async () => makeProblemsResponse([problem]) })
-  );
-  await window.initRevisionTracker();
+test("markProblemForRevision: an already-queued problem is not re-added", async () => {
+  // Re-marking must not reset an in-progress schedule back to stage 0.
+  const existing = makeLogEntry({ stage: 3 });
+  const { window, chrome } = load({ [REVISION_LOG_KEY]: { "1001": existing } });
+  const added = await window.markProblemForRevision("Two Sum", PROBLEM_URL, 1001);
   await tick();
-  assert.equal(chrome.__local[REVISION_LOG_KEY]["9001"].stage, 2);
+  assert.equal(added, false);
+  const stored = await new Promise((r) =>
+    chrome.storage.local.get(REVISION_LOG_KEY, (v) => r(v[REVISION_LOG_KEY])),
+  );
+  assert.equal(stored["1001"].stage, 3, "existing stage preserved");
 });
 
-// ─── Backfill ─────────────────────────────────────────────────
-
-test("first load seeds all solved problems as immediately due", async () => {
-  const problem = makeApiProblem({ ib_problem_id: 5001, title: "Quick Sort", sbat_id: 100 });
-  const { window, chrome } = loadWithChrome(
-    {},
-    () => ({ ok: true, json: async () => makeProblemsResponse([problem]) })
-  );
-  await window.initRevisionTracker();
+test("markProblemForRevision: numeric and string ids address the same entry", async () => {
+  const { window } = load();
+  assert.equal(await window.markProblemForRevision("Two Sum", PROBLEM_URL, 1001), true);
   await tick();
-  const log = chrome.__local[REVISION_LOG_KEY];
-  assert.ok(log?.["5001"], "backfilled entry exists");
-  assert.ok(log["5001"].nextDue <= Date.now(), "immediately due");
-  assert.equal(chrome.__local[REVISION_SEEDED_KEY], true);
+  assert.equal(await window.markProblemForRevision("Two Sum", PROBLEM_URL, "1001"), false);
 });
 
-test("already-seeded → existing entry stage unchanged", async () => {
-  const problem = makeApiProblem({ ib_problem_id: 6001 });
-  const existingEntry = makeLogEntry({ stage: 1, nextDue: Date.now() + 3 * 86400000 });
-  const { window, chrome } = loadWithChrome(
-    {
-      [REVISION_LOG_KEY]: { "6001": existingEntry },
-      [REVISION_SEEDED_KEY]: true,
-    },
-    () => ({ ok: true, json: async () => makeProblemsResponse([problem]) })
-  );
-  await window.initRevisionTracker();
-  await tick();
-  assert.equal(chrome.__local[REVISION_LOG_KEY]["6001"].stage, 1);
+test("markProblemForRevision: no-ops once the extension context is gone", async () => {
+  // An orphaned content script must not touch chrome.* after a reload.
+  const { window } = load({}, { isExtensionValid: () => false });
+  assert.equal(await window.markProblemForRevision("Two Sum", PROBLEM_URL, 1001), false);
 });
 
-test("initRevisionTracker: no DOM panel injected", async () => {
-  const problem = makeApiProblem({ ib_problem_id: 8001 });
-  const { window } = loadWithChrome(
-    {},
-    () => ({ ok: true, json: async () => makeProblemsResponse([problem]) })
+test("markProblemForRevision: a storage failure is swallowed, not thrown", async () => {
+  // Content scripts have no error boundary — a rejection here would surface as
+  // an unhandled rejection in the page.
+  const { window } = load();
+  window.chrome.storage.local.get = () => {
+    throw new Error("storage unavailable");
+  };
+  assert.equal(await window.markProblemForRevision("Two Sum", PROBLEM_URL, 1001), false);
+});
+
+// ─── Scope ────────────────────────────────────────────────────
+
+test("revisionTracker injects no DOM of its own", () => {
+  // Rendering belongs to revisionPanel.js; the tracker is storage/scheduling only.
+  const { window } = load();
+  assert.equal(window.document.body.children.length, 0);
+});
+
+// ─── Panel sizing (regression guard) ──────────────────────────
+
+test("the revision list is height-capped and scrolls internally", () => {
+  // The panel sits ABOVE Performance / Attendance / Notice Board in the sidebar.
+  // If the list grew with the queue it would push all of them off-screen, which
+  // is the whole reason the panel was moved there. jsdom does no layout, so the
+  // guard is on the stylesheet itself.
+  const fs = require("fs");
+  const path = require("path");
+  const css = fs.readFileSync(
+    path.resolve(__dirname, "..", "extension-main", "content", "features", "revisionPanel.css"),
+    "utf8",
   );
-  await window.initRevisionTracker();
-  assert.equal(window.document.querySelectorAll("[data-revision-injected]").length, 0);
+  const rule = css.match(/#srp-list\s*\{[^}]*\}/);
+  assert.ok(rule, "#srp-list rule present");
+  assert.match(rule[0], /max-height:/, "list height is capped");
+  assert.match(rule[0], /overflow-y:\s*auto/, "list scrolls instead of growing");
+  assert.match(rule[0], /--srp-visible-rows:\s*\d+/, "visible row count is tunable");
+});
+
+test("the panel opens problems with noopener", () => {
+  // window.open(url, "_blank") without it hands the new tab a live opener
+  // handle back to the dashboard.
+  const fs = require("fs");
+  const path = require("path");
+  const js = fs.readFileSync(
+    path.resolve(__dirname, "..", "extension-main", "content", "features", "revisionPanel.js"),
+    "utf8",
+  );
+  assert.match(js, /window\.open\([^)]*"noopener"\)/, "revisit link uses noopener");
 });

@@ -55,6 +55,35 @@
   padding: 6px 14px 10px;
 }
 
+/* The queue can hold an unbounded number of problems, but this panel sits ABOVE
+   Performance / Attendance / Notice Board in the dashboard sidebar. Letting it
+   grow with the queue would push all of those off-screen — so the list gets a
+   fixed viewport of ~5 rows and scrolls internally instead. Everything below
+   the panel then stays exactly where it is, whether 3 problems are due or 50.
+   `overscroll-behavior: contain` stops a scroll that reaches the end of the
+   list from chaining into the page behind it. */
+#srp-list {
+  --srp-row-h: 33px; /* 7px padding x2 + ~18px line + 1px divider */
+  --srp-visible-rows: 5;
+  max-height: calc(var(--srp-row-h) * var(--srp-visible-rows));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+#srp-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+#srp-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+#srp-list::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
 .srp-body.srp-hidden {
   display: none;
 }
