@@ -117,6 +117,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!value && typeof closeSpotlight === "function") {
         closeSpotlight();
       }
+    } else if (key === "vim-mode") {
+      if (typeof setVimEnabled === "function") setVimEnabled(value);
     } else if (key === "theme") {
       // Site-wide theme switch — value is a theme id ("off", "dark", ...)
       if (typeof applyTheme === "function") applyTheme(value);
@@ -159,6 +161,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const tab = document.getElementById('classroom-instructor-info'); if (tab) tab.remove();
         const panel = document.getElementById('scaler-instructor-panel'); if (panel) panel.remove();
         document.querySelectorAll('[data-instructor-info-id]').forEach(el => el.removeAttribute('data-instructor-info-id'));
+      }
+    } else if (key === "assignment-export") {
+      if (value) {
+        if (typeof initAssignmentExport === "function") initAssignmentExport();
+      } else {
+        // teardown assignment-export: remove buttons
+        document.querySelectorAll('.scaler-export-assignment, .scaler-export-question').forEach(el => el.remove());
       }
     } else if (key === "lecture-summary") {
       if (value) {
@@ -214,6 +223,13 @@ window.addEventListener("load", async () => {
   // Initialize LeetCode link
   setTimeout(initLeetCodeLink, 2000);
 
+  // Initialize Assignment Export
+  setTimeout(() => {
+    if (typeof initAssignmentExport === "function") {
+      initAssignmentExport();
+    }
+  }, 2000);
+
   // Initialize Join Session buttons on dashboard
   setTimeout(initJoinSessionButtons, 1500);
 
@@ -244,6 +260,9 @@ window.addEventListener("load", async () => {
 
   // Initialize Spotlight Search (Ctrl+Space)
   if (typeof initSpotlightSearch === "function") initSpotlightSearch();
+
+  // Initialize Vim mode on coding problem pages
+  setTimeout(initVimMode, 1800);
 
   // Initialize Smart Revision marker button on problem pages
   setTimeout(() => {
@@ -291,9 +310,17 @@ handleUrlChange = function () {
   // Handle practice mode on URL change
   setTimeout(handlePracticeMode, 2000);
 
+  // Re-attach Vim mode when navigating between coding problems
+  setTimeout(initVimMode, 2000);
+
   // Check for assignment problem pages (LeetCode link)
   if (isAssignmentProblemPage()) {
     setTimeout(initLeetCodeLink, 2000);
+    setTimeout(() => {
+      if (typeof initAssignmentExport === "function") {
+        initAssignmentExport();
+      }
+    }, 2000);
   }
 
   // Re-inject Join Session buttons on any dashboard navigation

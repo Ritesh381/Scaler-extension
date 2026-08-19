@@ -69,3 +69,43 @@ test("initCustomMessages calls processMessages with backend data", () => {
   window.initCustomMessages();
   assert.deepEqual(injected, ["z"]);
 });
+
+test("initCustomMessages forwards the cached profile email for audience targeting", () => {
+  const sent = [];
+  const chrome = makeChrome({
+    syncStore: {
+      scaler_user: { name: "Ritesh", email: "ritesh.24bcs10088@sst.scaler.com" },
+    },
+    sendMessage: (msg, cb) => {
+      sent.push(msg);
+      cb({ success: true, data: [] });
+    },
+  });
+  const { window } = loadFeature("content/features/customMessage.js", { chrome });
+
+  window.initCustomMessages();
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].action, "fetchCustomMessages");
+  assert.equal(sent[0].email, "ritesh.24bcs10088@sst.scaler.com");
+});
+
+test("initCustomMessages still fetches with a null email when no profile is cached", () => {
+  const sent = [];
+  const chrome = makeChrome({
+    sendMessage: (msg, cb) => {
+      sent.push(msg);
+      cb({ success: true, data: [{ id: "b", one_time: false, msg: "B" }] });
+    },
+  });
+  const { window } = loadFeature("content/features/customMessage.js", { chrome });
+
+  const injected = [];
+  window.injectCustomMessage = (msg) => injected.push(msg.id);
+
+  window.initCustomMessages();
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].email, null);
+  assert.deepEqual(injected, ["b"]);
+});

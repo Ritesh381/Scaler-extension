@@ -30,6 +30,7 @@ const DEFAULT_SETTINGS = {
   "problem-search": true,
   "leetcode-link": true,
   "problem-picker": true,
+  "vim-mode": false,
   "practice-mode": false,
   "practice-mode-days": 7,
   "practice-mode-start": null,
@@ -50,6 +51,7 @@ const DEFAULT_SETTINGS = {
 
   // Assignment
   companion: true,
+  "assignment-export": false,
 
   // Spotlight Search
   "spotlight-search": true,
@@ -77,6 +79,7 @@ const TOGGLE_MAP = {
   "toggle-core-curriculum": "core-curriculum",
   "toggle-problem-search": "problem-search",
   "toggle-problem-picker": "problem-picker",
+  "toggle-vim-mode": "vim-mode",
   "toggle-leetcode-link": "leetcode-link",
   "toggle-practice-mode": "practice-mode",
   "toggle-lecture-info": "lecture-info",
@@ -85,6 +88,7 @@ const TOGGLE_MAP = {
   "toggle-join-session": "join-session",
   "toggle-companion-bypass": "companion-bypass",
   "toggle-companion": "companion",
+  "toggle-assignment-export": "assignment-export",
   "toggle-subject-sort": "subject-sort",
   "toggle-live-stream-recorder": "live-stream-recorder",
   "toggle-video-downloader": "video-downloader",
@@ -258,6 +262,7 @@ async function handleToggleChange(toggleId, settingKey) {
       "problem-search",
       "problem-picker",
       "leetcode-link",
+      "vim-mode",
       "practice-mode",
       "join-session",
       "companion-bypass",

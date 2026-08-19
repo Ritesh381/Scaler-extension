@@ -11,6 +11,7 @@ Thanks for your interest in contributing to **Scaler++**! Whether you're fixing 
 - [Development Workflow](#-development-workflow)
 - [Loading the Extension Locally](#-loading-the-extension-locally)
 - [Making Changes](#-making-changes)
+- [Keeping Docs Updated](#-keeping-docs-updated)
 - [Submitting a Pull Request](#-submitting-a-pull-request)
 - [Code Guidelines](#-code-guidelines)
 - [Chrome Web Store Review Timeline](#-chrome-web-store-review-timeline)
@@ -123,7 +124,11 @@ Since this is a Manifest V3 Chrome extension, you can load it directly into Chro
    - Inspect the **Service Worker** logs by clicking "Inspect views: service worker" on the extension card at `chrome://extensions`.
    - Test that existing features still work (toggle switches, LeetCode links, downloads, etc.).
 
-4. **Commit** with a clear, descriptive message:
+4. **Update the docs as soon as the change converges** — see
+   [Keeping Docs Updated](#-keeping-docs-updated). Do this before you start the next piece of work,
+   not at the end of the branch.
+
+5. **Commit** with a clear, descriptive message:
 
    ```bash
    git add .
@@ -143,6 +148,39 @@ Since this is a Manifest V3 Chrome extension, you can load it directly into Chro
 
 ---
 
+## 📚 Keeping Docs Updated
+
+**A change is not done until the docs match it.** Docs are not a final cleanup pass — they get
+written the moment a feature or fix **converges**.
+
+Converged means you have stopped iterating on the behaviour: the code works on `scaler.com`, the
+toggle turns the feature both on *and* off cleanly, and `npm test` in `tests/` passes. That is the
+point where you know what actually shipped, so that is when docs are cheapest and most accurate to
+write. Don't batch them to the end of a long session, and don't wait to be asked.
+
+At that checkpoint, in order:
+
+1. **`README.md`** — add or adjust the feature section (keep the emoji heading style) for anything
+   user-visible.
+2. **`docs/<feature>.md`** — create or update one for any non-trivial feature. Document architecture,
+   data flow, teardown (observers / intervals / listeners), and intentional limitations. Use
+   [`docs/assignment-export.md`](docs/assignment-export.md) as the template; see also
+   `docs/architecture.md`, `docs/calendar-sync.md`, `docs/companion-bypass.md`,
+   `docs/dom-cleaner.md`, `docs/leetcode-link.md`, `docs/problem-search.md`.
+3. **`Feature-details.md`** and popup copy — keep in sync with what actually ships.
+4. **`CONTRIBUTING.md`** (this file) — update if project structure, workflow, or guidelines changed.
+   **`CLAUDE.md`** — update if architecture, conventions, or commands changed.
+5. **`extension-main/manifest.json`** — bump `version` for a release-worthy change.
+
+Then commit code and docs together, or as a `docs:` commit immediately after on the same branch, so no
+commit on the branch describes behaviour the docs contradict.
+
+If a later iteration changes the behaviour again, run the same checkpoint again — docs get updated
+every time the feature re-converges, not once per PR. A feature PR with no README change gets
+bounced, and a stale doc is treated the same as a failing test.
+
+---
+
 ## 📬 Submitting a Pull Request
 
 1. Push your branch to your fork:
@@ -158,6 +196,8 @@ Since this is a Manifest V3 Chrome extension, you can load it directly into Chro
    - **Why** the change is needed.
    - **Screenshots / GIFs** if it's a UI change.
    - **Testing steps** you followed.
+   - **Which docs you updated** — README section, `docs/<feature>.md`, `Feature-details.md`, popup
+     copy, manifest `version`. If you updated none, say why.
 
 4. Wait for a review. Address any feedback and push follow-up commits to the same branch.
 

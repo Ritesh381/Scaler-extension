@@ -34,11 +34,13 @@ const DEFAULT_SETTINGS = {
   "problem-search": true,
   "leetcode-link": true,
   "problem-picker": true,
+  "vim-mode": false,
   "practice-mode": false,
   "practice-mode-days": 7,
   "practice-mode-start": null,
 
   companion: true,
+  "assignment-export": false,
   "subject-sort": true,
   "lecture-info": true,
   "instructor-info": true,
