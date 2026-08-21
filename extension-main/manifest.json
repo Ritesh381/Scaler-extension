@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Scaler++",
-  "version": "1.10.3",
+  "version": "1.11.0",
   "description": "Bypass companion-mode on campus WiFi, spotlight search, download lecture recordings & declutter Scaler dashboard",
   "permissions": [
     "storage",
@@ -16,7 +16,13 @@
     "*://scaler.com/*",
     "*://*.scaler.com/*",
     "https://www.googleapis.com/calendar/*",
-    "https://scalerbackend.vercel.app/*"
+    "https://scalerbackend.vercel.app/*",
+    "https://api.openai.com/*",
+    "https://api.groq.com/*",
+    "https://api.deepgram.com/*",
+    "https://api.elevenlabs.io/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://openrouter.ai/*"
   ],
   "oauth2": {
     "client_id": "240142215084-so5ckgh5al2d6aipa0fg9bsokt2gdp61.apps.googleusercontent.com",
@@ -89,6 +95,7 @@
         "content/features/lectureInfo.js",
         "content/features/instructorInfo.js",
         "content/features/lectureSummary.js",
+        "content/features/liveTutor.js",
         "content/features/spotlightSearch.js",
         "content/features/liveStreamRecorder/liveStreamRecorder.js",
         "content/features/themeManager.js",
