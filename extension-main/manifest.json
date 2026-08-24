@@ -19,7 +19,7 @@
     "https://scalerbackend.vercel.app/*"
   ],
   "oauth2": {
-    "client_id": "240142215084-so5ckgh5al2d6aipa0fg9bsokt2gdp61.apps.googleusercontent.com",
+    "client_id": "240142215084-3r1o48jj60gpj45vnah4qasa8e02locm.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/calendar.events"
     ]

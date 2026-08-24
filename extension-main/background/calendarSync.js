@@ -1,27 +1,71 @@
 // ============================================================
 // background/calendarSync.js — Google Calendar Auto-Sync
 // ─────────────────────────────────────────────────────────────
-
+//
 // Lifecycle:
-//   • On first install  → schedules a 12-hour repeating alarm
-//     and immediately runs an initial sync (if the toggle is on).
-//   • On each alarm fire → silently re-syncs in the background.
-//   • On SYNC_CALENDAR message → runs an interactive sync
-//     (shows OAuth consent screen if not yet authenticated).
-//   • On CALENDAR_SYNC_TOGGLED message → creates or clears the
-//     alarm so no API calls are ever made while the toggle is OFF.
+//   • On install / update → schedules a 24-hour repeating alarm; a *fresh*
+//     install also runs one silent sync immediately.
+//   • On browser startup  → re-creates the alarm if it went missing.
+//   • On each alarm fire  → silently re-syncs in the background.
+//   • On SYNC_CALENDAR message → interactive sync (shows OAuth consent).
+//   • On CALENDAR_SYNC_TOGGLED message → creates or clears the alarm so no
+//     API calls are ever made while the toggle is OFF.
 // ============================================================
 
 const CALENDAR_ALARM_NAME = "autoSyncCalendar";
 const CALENDAR_ALARM_PERIOD = 1440; // minutes — 24 hours
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+// ─── OAuth Clients ───────────────────────────────────────────
+// TWO different Google OAuth clients are needed. They are NOT
+// interchangeable, and mixing them up is what broke background sync:
+//
+//   1. manifest.oauth2.client_id MUST be a **Chrome Extension** client
+//      (Cloud Console → Credentials → Create OAuth client ID → application
+//      type "Chrome Extension", Item ID = this extension's ID). Only that
+//      type works with chrome.identity.getAuthToken, and only getAuthToken
+//      hands Chrome a *refreshable* token cache — which is the one thing
+//      that makes a 24 h background sync possible at all.
+//
+//   2. WEB_CLIENT_ID is a **Web application** client, used only by
+//      launchWebAuthFlow, for browsers that have no working getAuthToken
+//      (Brave, Arc) or Chrome profiles with no signed-in Google account.
+//      chrome.identity.getRedirectURL() must be registered as an Authorized
+//      Redirect URI on that client.
+//
+// Passing a Web client id to getAuthToken fails 100% of the time ("bad
+// client id") because Web clients are confidential clients and an extension
+// has no client secret to offer. That was the real cause of issue #13:
+// attempt 1 never succeeded, Chrome's refreshable cache was therefore never
+// populated, so every background (interactive:false) sync threw — while
+// manual syncs fell through to the implicit web flow and appeared to work.
+const WEB_CLIENT_ID =
+  "240142215084-so5ckgh5al2d6aipa0fg9bsokt2gdp61.apps.googleusercontent.com";
+
+// Replace this in manifest.json with the Chrome-Extension-type client id.
+// Until that happens the getAuthToken path is skipped instead of failing
+// noisily on every call, so behaviour is no worse than before.
+const EXT_CLIENT_ID_PLACEHOLDER =
+  "REPLACE_WITH_CHROME_EXTENSION_CLIENT_ID.apps.googleusercontent.com";
+
+/**
+ * The Chrome-Extension-type client id from the manifest, or null when it is
+ * still unset / left as the placeholder / wrongly set to the Web client.
+ */
+function _extensionClientId() {
+  const id = chrome.runtime.getManifest().oauth2?.client_id ?? "";
+  if (!id || id === EXT_CLIENT_ID_PLACEHOLDER || id === WEB_CLIENT_ID) {
+    return null;
+  }
+  return id;
+}
 
 // ─── Install Hook ────────────────────────────────────────────
 
 /**
  * Runs once when the extension is installed or updated.
- * For fresh installs we schedule the alarm AND do an immediate
- * sync so the user doesn't have to wait 12 hours for their
- * first calendar entries.  Updates leave existing alarms alone.
+ * Chrome drops an extension's alarms on update, so the alarm is
+ * (re)created on both reasons; only a fresh install syncs immediately.
  */
 chrome.runtime.onInstalled.addListener(async (details) => {
   const result = await chrome.storage.sync.get("cleanerSettings");
@@ -40,6 +84,26 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     performSync(false).catch((err) =>
       console.warn("[Scaler++ Calendar] Initial sync skipped:", err.message),
     );
+  }
+});
+
+// ─── Startup Self-Heal ───────────────────────────────────────
+
+/**
+ * Alarms survive a browser restart, but they do NOT survive a profile
+ * repair, a crashed service worker mid-create, or a manual chrome://extensions
+ * reload. Without this, one lost alarm means auto-sync stays dead forever
+ * because nothing else re-creates it.
+ */
+chrome.runtime.onStartup.addListener(async () => {
+  const result = await chrome.storage.sync.get("cleanerSettings");
+  const settings = result.cleanerSettings || {};
+  if (settings["calendar-sync"] === false) return;
+
+  const existing = await chrome.alarms.get(CALENDAR_ALARM_NAME);
+  if (!existing) {
+    console.warn("[Scaler++ Calendar] Alarm was missing at startup — recreating.");
+    _scheduleAlarm();
   }
 });
 
@@ -99,7 +163,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // ─── Alarm Helpers ───────────────────────────────────────────
 
 /**
- * Create (or silently replace) the 12-hour repeating alarm.
+ * Create (or silently replace) the 24-hour repeating alarm.
  * Chrome deduplicates alarms by name, so calling this more than
  * once is safe — it simply resets the period.
  */
@@ -128,73 +192,63 @@ function _clearAlarm() {
   });
 }
 
-// ─── Core Sync ───────────────────────────────────────────────
+// ─── OAuth ───────────────────────────────────────────────────
 
 /**
- * Fetch today + tomorrow's Scaler lessons and push each one to
- * the user's primary Google Calendar.
+ * Chrome-native token via chrome.identity.getAuthToken.
+ * Resolves null (never throws) so the caller can decide whether falling
+ * back to the web flow is appropriate.
  *
- * @param {boolean} isInteractive
- *   Pass `true` when the user explicitly triggered the sync
- *   (e.g. the "Sync Now" button).  Chrome.identity will then
- *   show the OAuth consent screen if a token isn't cached yet.
- *   Pass `false` for background / alarm-driven calls — if the
- *   user hasn't authenticated the call fails quietly rather than
- *   popping up an unexpected browser window.
- */ // ─── OAuth Helper ─────────────────────────────────────────────
-
-/**
- * Attempts getAuthToken (Chrome-native, zero config needed).
- * Falls back to launchWebAuthFlow for Brave / Edge / Arc.
- *
- * WHY interactivity is forwarded (fixes 24h auto-sync, issue #13):
- * A *manual* sync must call getAuthToken with interactive:true so Chrome shows
- * the consent screen AND populates its refreshable token cache. Only then can
- * the *background* (interactive:false) call return a token 24h later — Chrome
- * auto-refreshes cached getAuthToken tokens. Previously Attempt 1 was always
- * interactive:false, so the cache was never populated and every background sync
- * failed silently (the launchWebAuthFlow implicit token is not cached, expires
- * in ~1h, and has no refresh token) — forcing users to sync manually each time.
- *
- * NOTE: For launchWebAuthFlow to succeed, the URI returned by
- * chrome.identity.getRedirectURL() must be added as an
- * Authorized Redirect URI in Google Cloud Console under the
- * OAuth 2.0 Web Application client.
+ * This is the ONLY path that yields a token Chrome will silently refresh,
+ * so it is also the only path that can serve a background sync.
  */
-async function _getOAuthToken(isInteractive) {
-  // ── Attempt 1: Chrome native (getAuthToken) ───────────────
-  // Forward the caller's interactivity: interactive:true on a manual sync
-  // seeds the refreshable cache; interactive:false in the background reuses it.
-  try {
-    const token = await new Promise((resolve, reject) => {
-      chrome.identity.getAuthToken({ interactive: isInteractive }, (t) => {
-        if (chrome.runtime.lastError || !t) {
-          reject(new Error(chrome.runtime.lastError?.message ?? "no token"));
+async function _getChromeToken(isInteractive) {
+  if (typeof chrome.identity?.getAuthToken !== "function") {
+    return null; // Brave / Arc — no native implementation
+  }
+  if (!_extensionClientId()) {
+    console.warn(
+      "[Scaler++ Calendar] manifest.oauth2.client_id is not a Chrome-Extension " +
+        "type client — skipping getAuthToken. Background sync stays disabled " +
+        "until a Chrome Extension OAuth client id is set.",
+    );
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    try {
+      chrome.identity.getAuthToken({ interactive: isInteractive }, (token) => {
+        if (chrome.runtime.lastError || !token) {
+          console.warn(
+            "[Scaler++ Calendar] getAuthToken failed:",
+            chrome.runtime.lastError?.message ?? "no token returned",
+          );
+          resolve(null);
         } else {
-          resolve(t);
+          resolve(token);
         }
       });
-    });
-    return token;
-  } catch (_) {
-    // Not cached yet — fall through to interactive flow below
-    if (!isInteractive) {
-      throw new Error(
-        "No cached token and running in background — " +
-          "user must trigger a manual sync first.",
-      );
+    } catch (err) {
+      console.warn("[Scaler++ Calendar] getAuthToken threw:", err.message);
+      resolve(null);
     }
-  }
-  // ── Attempt 2: launchWebAuthFlow (all Chromium browsers) ──
-  const CLIENT_ID = chrome.runtime.getManifest().oauth2.client_id;
+  });
+}
+
+/**
+ * Implicit-flow token via launchWebAuthFlow, for browsers where
+ * getAuthToken is unavailable or the profile has no Google account.
+ * Interactive only — the token is not cached and expires in ~1 h.
+ */
+async function _getWebToken() {
   const redirectUrl = chrome.identity.getRedirectURL();
 
   const authUrl =
     `https://accounts.google.com/o/oauth2/auth` +
-    `?client_id=${encodeURIComponent(CLIENT_ID)}` +
+    `?client_id=${encodeURIComponent(WEB_CLIENT_ID)}` +
     `&response_type=token` +
     `&redirect_uri=${encodeURIComponent(redirectUrl)}` +
-    `&scope=${encodeURIComponent("https://www.googleapis.com/auth/calendar.events")}`;
+    `&scope=${encodeURIComponent(CALENDAR_SCOPE)}`;
 
   return new Promise((resolve, reject) => {
     chrome.identity.launchWebAuthFlow(
@@ -218,8 +272,81 @@ async function _getOAuthToken(isInteractive) {
   });
 }
 
+/**
+ * Resolve an access token.
+ *
+ * @param {boolean} isInteractive
+ *   true  → user-triggered: consent windows are allowed, and a successful
+ *           getAuthToken call seeds Chrome's refreshable cache so later
+ *           background runs can get a token with interactive:false.
+ *   false → alarm-driven: only the silently-refreshable Chrome cache is
+ *           acceptable; never pop an unexpected window.
+ *
+ * @returns {Promise<{token: string, source: "chrome"|"web"}>}
+ *   `source` matters for 401 recovery — only "chrome" tokens can be
+ *   invalidated and silently re-minted.
+ */
+async function _getOAuthToken(isInteractive) {
+  const chromeToken = await _getChromeToken(isInteractive);
+  if (chromeToken) return { token: chromeToken, source: "chrome" };
+
+  if (!isInteractive) {
+    throw new Error(
+      "No refreshable Google token available in the background — " +
+        "run a manual sync from the popup once to grant access.",
+    );
+  }
+
+  const webToken = await _getWebToken();
+  return { token: webToken, source: "web" };
+}
+
+/**
+ * Calendar API fetch with one-shot 401 recovery.
+ *
+ * Chrome caches getAuthToken results aggressively: once a cached token is
+ * revoked or stale, every later call returns the same dead token and every
+ * request 401s. Without removeCachedAuthToken the extension stays broken
+ * until the profile is restarted — and because per-event failures are only
+ * counted as "skipped", the popup still reported success.
+ *
+ * `auth` is mutated in place on a successful refresh so the remaining
+ * lessons in the run reuse the new token.
+ */
+async function _calendarFetch(url, init, auth, isInteractive) {
+  const withAuth = (token) => ({
+    ...init,
+    headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token}` },
+  });
+
+  const res = await fetch(url, withAuth(auth.token));
+  if (res.status !== 401) return res;
+
+  // Implicit web-flow tokens have no refresh path — nothing to retry with.
+  if (auth.source !== "chrome") return res;
+
+  console.warn("[Scaler++ Calendar] Token rejected (401) — invalidating cache.");
+  await new Promise((resolve) =>
+    chrome.identity.removeCachedAuthToken({ token: auth.token }, resolve),
+  );
+
+  const fresh = await _getChromeToken(isInteractive);
+  if (!fresh) return res; // hand the 401 back to the caller
+
+  auth.token = fresh;
+  return fetch(url, withAuth(auth.token));
+}
+
+// ─── Core Sync ───────────────────────────────────────────────
+
+/**
+ * Fetch the next 7 days of Scaler lessons and push each one to the
+ * user's primary Google Calendar.
+ *
+ * @param {boolean} isInteractive See _getOAuthToken.
+ */
 async function performSync(isInteractive = false) {
-  // ── 1. Build date range: today → tomorrow ─────────────────
+  // ── 1. Build date range: today → +7 days ──────────────────
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const localDate = (d) =>
@@ -235,13 +362,15 @@ async function performSync(isInteractive = false) {
   );
 
   // ── 2. Fetch events from Scaler ───────────────────────────
-  // The service worker shares the browser's cookie jar, so the
-  // user's Scaler session cookie is attached automatically.
+  // credentials:"include" is required — a service-worker fetch defaults to
+  // "same-origin", and chrome-extension:// is cross-origin to scaler.com,
+  // so the session cookie would not be attached. Every other Scaler fetch
+  // in this codebase passes it too.
   const scalerUrl =
     `https://www.scaler.com/academy/mentee/events/` +
     `?start_date=${startDate}&end_date=${endDate}&include_offline_events=true`;
 
-  const scalerRes = await fetch(scalerUrl);
+  const scalerRes = await fetch(scalerUrl, { credentials: "include" });
   if (!scalerRes.ok) {
     throw new Error(
       `Scaler API error (HTTP ${scalerRes.status}). ` +
@@ -274,11 +403,12 @@ async function performSync(isInteractive = false) {
   }
 
   // ── 3. Obtain Google OAuth token ──────────────────────────
-  const token = await _getOAuthToken(isInteractive);
+  const auth = await _getOAuthToken(isInteractive);
 
   // ── 4. Push each lesson to Google Calendar ────────────────
   let addedCount = 0;
   let skippedCount = 0;
+  let authFailures = 0;
 
   for (const lesson of lessons) {
     // Build a minimal Calendar event.  Including the course name
@@ -294,37 +424,56 @@ async function performSync(isInteractive = false) {
 
     console.log(`[Scaler++ Calendar]   → "${lesson.title}"`);
 
-    // Check if this class already exists in Google Calendar
-    const searchRes = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events` +
-        `?q=${encodeURIComponent(lesson.title)}` +
-        `&timeMin=${new Date(lesson.date).toISOString()}` +
-        `&timeMax=${new Date(lesson.end_time).toISOString()}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    const searchData = await searchRes.json();
-    if (searchData.items?.length > 0) {
-      console.log(`[Scaler++ Calendar]   ⏭ Already exists: "${lesson.title}"`);
-      skippedCount++;
-      continue;
-    }
-
     try {
-      const gCalRes = await fetch(
+      // Check if this class already exists in Google Calendar
+      const searchRes = await _calendarFetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events` +
+          `?q=${encodeURIComponent(lesson.title)}` +
+          `&timeMin=${new Date(lesson.date).toISOString()}` +
+          `&timeMax=${new Date(lesson.end_time).toISOString()}`,
+        {},
+        auth,
+        isInteractive,
+      );
+
+      if (searchRes.status === 401 || searchRes.status === 403) {
+        // Auth is dead for the whole run — no point hammering the rest
+        authFailures++;
+        console.error(
+          `[Scaler++ Calendar]   ✗ Auth rejected (HTTP ${searchRes.status}) ` +
+            `while checking "${lesson.title}".`,
+        );
+        break;
+      }
+
+      const searchData = await searchRes.json();
+      if (searchData.items?.length > 0) {
+        console.log(`[Scaler++ Calendar]   ⏭ Already exists: "${lesson.title}"`);
+        skippedCount++;
+        continue;
+      }
+
+      const gCalRes = await _calendarFetch(
         "https://www.googleapis.com/calendar/v3/calendars/primary/events",
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(gCalEvent),
         },
+        auth,
+        isInteractive,
       );
 
       if (gCalRes.ok) {
         console.log(`[Scaler++ Calendar]   ✓ Added: "${lesson.title}"`);
         addedCount++;
+      } else if (gCalRes.status === 401 || gCalRes.status === 403) {
+        authFailures++;
+        console.error(
+          `[Scaler++ Calendar]   ✗ Auth rejected (HTTP ${gCalRes.status}) ` +
+            `while adding "${lesson.title}".`,
+        );
+        break;
       } else {
         // Log the exact Google error reason and continue — a single
         // bad event (e.g. duplicate, malformed date) should not
@@ -350,4 +499,12 @@ async function performSync(isInteractive = false) {
     `[Scaler++ Calendar] Sync complete — ` +
       `${addedCount} added, ${skippedCount} skipped.`,
   );
+
+  // Never report success when the run died on authorization — the popup
+  // used to print "✓ Classes added to Calendar" after adding nothing.
+  if (authFailures > 0 && addedCount === 0) {
+    throw new Error(
+      "Google rejected the authorization. Re-run Sync Now and grant access.",
+    );
+  }
 }
