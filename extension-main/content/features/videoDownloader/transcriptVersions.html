@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scaler++ Transcripts</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* The UA rule for [hidden] is display:none at the lowest specificity, so any
+       class that sets display (.list, .top-badge, .state) would out-rank it and
+       keep hidden elements on screen. Everything here toggles via .hidden. */
+    [hidden] {
+      display: none !important;
+    }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1c1d27;
+      --surface-2: #18181b;
+      --surface-3: #23242f;
+      --line: #27272a;
+      --line-strong: #3f3f46;
+      --text: #e4e4e7;
+      --text-dim: #a1a1aa;
+      --text-faint: #71717a;
+      --accent: #3484f0;
+      --accent-2: #6366f1;
+      --up: #10b981;
+      --down: #f43f5e;
+    }
+
+    body {
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 40px 24px 80px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      width: 100%;
+      max-width: 880px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+
+    .brand {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+      color: var(--text-dim);
+      margin-bottom: 28px;
+    }
+
+    .brand span {
+      color: var(--accent);
+    }
+
+    .lecture-name {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: -0.4px;
+      margin-bottom: 10px;
+      overflow-wrap: anywhere;
+    }
+
+    .lecture-name.placeholder {
+      color: var(--text-faint);
+      font-weight: 600;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .title-row h2 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--text-faint);
+    }
+
+    .count-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 100px;
+      background: rgba(52, 132, 240, 0.14);
+      color: #7fb0f7;
+      border: 1px solid rgba(52, 132, 240, 0.3);
+    }
+
+    .why {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-faint);
+      max-width: 620px;
+      margin-bottom: 24px;
+    }
+
+    .why b {
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+
+    /* ── Buttons ────────────────────────────────────────────── */
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #fff;
+      border: none;
+      padding: 11px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(52, 132, 240, 0.35);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--surface-2);
+      color: var(--text-dim);
+      border: 1px solid var(--line);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-ghost:hover {
+      color: var(--text);
+      border-color: var(--line-strong);
+    }
+
+    /* ── Version list ───────────────────────────────────────── */
+
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .version {
+      background: linear-gradient(145deg, var(--surface), var(--surface-3));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      transition: border-color 0.18s ease;
+    }
+
+    .version:hover {
+      border-color: var(--line-strong);
+    }
+
+    .version.is-top {
+      border-color: rgba(16, 185, 129, 0.35);
+    }
+
+    .v-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 18px 20px;
+    }
+
+    .v-meta {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .v-when {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 9px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex-wrap: wrap;
+    }
+
+    .v-when .exact {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text-faint);
+    }
+
+    .top-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 3px 8px;
+      border-radius: 100px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .v-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .pill {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      color: var(--text-dim);
+      font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    }
+
+    .pill.provider {
+      background: rgba(99, 102, 241, 0.13);
+      border-color: rgba(99, 102, 241, 0.3);
+      color: #a5b4fc;
+    }
+
+    .pill.unknown {
+      color: var(--text-faint);
+      font-style: italic;
+      font-family: inherit;
+    }
+
+    .v-by {
+      font-size: 12px;
+      color: var(--text-faint);
+      overflow-wrap: anywhere;
+    }
+
+    .v-by .sep {
+      color: var(--line-strong);
+      margin: 0 6px;
+    }
+
+    /* ── Actions ────────────────────────────────────────────── */
+
+    .v-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .act {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      color: var(--text-faint);
+      padding: 8px 11px;
+      border-radius: 9px;
+      font-size: 12.5px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      min-width: 52px;
+      justify-content: center;
+    }
+
+    .act svg {
+      flex-shrink: 0;
+    }
+
+    .act:hover:not(:disabled) {
+      border-color: var(--line-strong);
+      color: var(--text);
+    }
+
+    .act:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .act.up:hover:not(:disabled),
+    .act.up.active {
+      color: var(--up);
+      border-color: rgba(16, 185, 129, 0.45);
+      background: rgba(16, 185, 129, 0.1);
+    }
+
+    .act.down:hover:not(:disabled),
+    .act.down.active {
+      color: var(--down);
+      border-color: rgba(244, 63, 94, 0.45);
+      background: rgba(244, 63, 94, 0.1);
+    }
+
+    .act.download:hover:not(:disabled) {
+      color: #7fb0f7;
+      border-color: rgba(52, 132, 240, 0.45);
+      background: rgba(52, 132, 240, 0.1);
+    }
+
+    .act.chev {
+      min-width: 38px;
+      padding: 8px;
+    }
+
+    .act.chev svg {
+      transition: transform 0.2s ease;
+    }
+
+    .version.open .act.chev svg {
+      transform: rotate(180deg);
+    }
+
+    /* ── Preview ────────────────────────────────────────────── */
+
+    .v-preview {
+      border-top: 1px solid var(--line);
+      padding: 16px 20px 18px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+
+    .preview-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .preview-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-faint);
+    }
+
+    .preview-text {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+      font-size: 12px;
+      line-height: 1.75;
+      color: var(--text-dim);
+      max-height: 320px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .preview-text::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .preview-text::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .preview-text::-webkit-scrollbar-thumb {
+      background: var(--line-strong);
+      border-radius: 4px;
+    }
+
+    .preview-more {
+      font-size: 11.5px;
+      color: var(--text-faint);
+      margin-top: 9px;
+      font-style: italic;
+    }
+
+    /* ── States ─────────────────────────────────────────────── */
+
+    .skeleton {
+      background: linear-gradient(145deg, var(--surface), var(--surface-3));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      height: 106px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.035), transparent);
+      animation: shimmer 1.4s infinite;
+    }
+
+    @keyframes shimmer {
+      0% {
+        transform: translateX(-100%);
+      }
+
+      100% {
+        transform: translateX(100%);
+      }
+    }
+
+    .state {
+      text-align: center;
+      padding: 56px 24px;
+      background: linear-gradient(145deg, var(--surface), var(--surface-3));
+      border: 1px dashed var(--line-strong);
+      border-radius: 14px;
+      margin-top: 28px;
+    }
+
+    .state svg {
+      color: var(--line-strong);
+      margin-bottom: 16px;
+    }
+
+    .state h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .state p {
+      font-size: 13px;
+      color: var(--text-faint);
+      line-height: 1.6;
+      max-width: 380px;
+      margin: 0 auto 20px;
+    }
+
+    .state.error h3 {
+      color: #fb7185;
+    }
+
+    /* ── Toast ──────────────────────────────────────────────── */
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      transform: translate(-50%, 24px);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #23242f;
+      border: 1px solid var(--line-strong);
+      color: var(--text);
+      padding: 12px 18px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s ease, transform 0.22s ease;
+      z-index: 50;
+      max-width: calc(100vw - 48px);
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    .toast.good svg {
+      color: var(--up);
+    }
+
+    .toast.bad svg {
+      color: var(--down);
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+
+    @media (max-width: 620px) {
+      body {
+        padding: 28px 16px 64px;
+      }
+
+      .v-main {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .v-actions {
+        justify-content: space-between;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <div class="brand">Scaler<span>++</span></div>
+
+    <h1 id="lecture-name" class="lecture-name placeholder">Loading lecture…</h1>
+
+    <div class="title-row">
+      <h2>Transcripts</h2>
+      <span id="count-pill" class="count-pill" hidden></span>
+    </div>
+
+    <p class="why">
+      Transcript quality swings wildly between models — some come back in the wrong
+      language or loop the same sentence for pages. <b>Your vote decides which one
+      everybody gets by default</b>, so one click spares the next person from
+      downloading a bad transcript.
+    </p>
+
+    <button id="create-btn" class="btn-primary">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      Create a version
+    </button>
+
+    <div id="loading" class="list">
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+    </div>
+
+    <div id="list" class="list" hidden></div>
+
+    <div id="empty" class="state" hidden>
+      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="9" y1="15" x2="15" y2="15"></line>
+      </svg>
+      <h3>No transcripts yet</h3>
+      <p>Nobody has transcribed this lecture. Generate the first version and it becomes the shared copy for everyone in your batch.</p>
+      <button id="empty-create-btn" class="btn-primary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        Create the first version
+      </button>
+    </div>
+
+    <div id="error" class="state error" hidden>
+      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      <h3>Could not load transcripts</h3>
+      <p id="error-detail">Something went wrong reaching the transcript cache.</p>
+      <button id="retry-btn" class="btn-ghost">Try again</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">
+    <svg id="toast-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>
+    <span id="toast-text"></span>
+  </div>
+
+  <template id="version-template">
+    <article class="version">
+      <div class="v-main">
+        <div class="v-meta">
+          <div class="v-when">
+            <span class="rel"></span>
+            <span class="exact"></span>
+            <span class="top-badge" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              Top pick
+            </span>
+          </div>
+          <div class="v-pills"></div>
+          <div class="v-by"></div>
+        </div>
+
+        <div class="v-actions">
+          <button class="act up" type="button" title="This transcript is good">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7 10v12"></path>
+              <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"></path>
+            </svg>
+            <span class="up-count">0</span>
+          </button>
+
+          <button class="act down" type="button" title="This transcript is bad">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 14V2"></path>
+              <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"></path>
+            </svg>
+            <span class="down-count">0</span>
+          </button>
+
+          <button class="act download" type="button" title="Download this version">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span class="dl-count">0</span>
+          </button>
+
+          <button class="act chev" type="button" title="Preview this transcript" aria-expanded="false">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="v-preview" hidden>
+        <div class="preview-head">
+          <span class="preview-label">Preview</span>
+        </div>
+        <div class="preview-text"></div>
+        <div class="preview-more" hidden></div>
+      </div>
+    </article>
+  </template>
+
+  <script src="transcriptVersions.js"></script>
+</body>
+
+</html>

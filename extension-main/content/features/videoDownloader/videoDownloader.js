@@ -271,29 +271,20 @@ class VideoDownloader {
       menu.style.display = "none";
     };
 
-    // Transcript Options — split into two explicit choices so we never have to
-    // interrupt with a confirm() dialog. "Cache" takes the fast path when a
-    // shared transcript exists; "New" always goes straight to the processor.
-    const transcriptCacheOption = document.createElement("div");
-    transcriptCacheOption.innerText = "Transcript Cache \u26A1";
-    this.styleOption(transcriptCacheOption);
-    transcriptCacheOption.onclick = () => {
-      this.startDownload("transcript", { useCache: true });
-      menu.style.display = "none";
-    };
-
-    const transcriptNewOption = document.createElement("div");
-    transcriptNewOption.innerText = "Transcript New";
-    this.styleOption(transcriptNewOption);
-    transcriptNewOption.onclick = () => {
-      this.startDownload("transcript", { useCache: false });
+    // Transcript — always opens the versions page. A lecture can have many
+    // transcriptions of wildly different quality, so picking one (or adding
+    // one) belongs on that page, not behind a menu split or a dialog.
+    const transcriptOption = document.createElement("div");
+    transcriptOption.innerText = "Transcript";
+    this.styleOption(transcriptOption);
+    transcriptOption.onclick = () => {
+      this.startDownload("transcript");
       menu.style.display = "none";
     };
 
     menu.appendChild(audioOption);
     menu.appendChild(videoOption);
-    menu.appendChild(transcriptCacheOption);
-    menu.appendChild(transcriptNewOption);
+    menu.appendChild(transcriptOption);
 
     container.appendChild(button);
     container.appendChild(menu);
@@ -328,11 +319,31 @@ class VideoDownloader {
     opt.onmouseout = () => (opt.style.background = "transparent");
   }
 
-  async startDownload(type, opts = {}) {
-    const useCache = opts.useCache === true;
-    const btn = document
-      .getElementById("scaler-video-downloader")
-      .querySelector("a");
+  async startDownload(type) {
+    // SPA navigation can tear the button out between the click and this call.
+    const container = document.getElementById("scaler-video-downloader");
+    const btn = container && container.querySelector("a");
+    if (!btn) return;
+
+    const originalIcon = btn.innerHTML;
+
+    try {
+      await this._startDownload(type, btn);
+    } catch (err) {
+      // Without this the spinner span forever: the icon was only ever restored
+      // inside the sendMessage callback, so anything that threw before it —
+      // most commonly "Extension context invalidated" after the extension is
+      // reloaded or updated with the tab still open — left a dead spinner and
+      // no way to retry.
+      btn.innerHTML = originalIcon;
+      console.error("[Scaler++] Download could not be started:", err);
+      alert(
+        "⚠️ Could not start the download.\n\nIf the extension was just updated, reload the page and try again.",
+      );
+    }
+  }
+
+  async _startDownload(type, btn) {
     const originalIcon = btn.innerHTML;
     
     if (type === "transcript") {
@@ -366,82 +377,6 @@ class VideoDownloader {
       );
     }
     
-    if (type === "transcript" && useCache) {
-      const cacheKey = slug || document.title;
-      if (cacheKey) {
-        const cacheResult = await new Promise(resolve => {
-            chrome.runtime.sendMessage({ action: "checkTranscriptCache", slug: cacheKey }, (resp) => {
-                if (chrome.runtime.lastError) resolve(null);
-                else resolve(resp);
-            });
-        });
-        
-        if (cacheResult && cacheResult.success && cacheResult.data && cacheResult.data.cached && cacheResult.data.text) {
-            console.log("[Scaler++] Transcript loaded from cache.");
-
-            {
-                // Track completed download
-                try {
-                  chrome.storage.sync.get(["scaler_user"], (result) => {
-                    const email = result?.scaler_user?.email;
-                    if (email && chrome.runtime?.id) {
-                      chrome.runtime.sendMessage({
-                        action: "trackDownload",
-                        email,
-                        downloadType: "transcript",
-                        lecture: document.title || "",
-                        lectureSlug: cacheKey,
-                        // Served from the shared cache — no provider call made.
-                        source: "cache",
-                        provider: cacheResult.data.provider || "",
-                        model:
-                          cacheResult.data.model ||
-                          cacheResult.data.modelName ||
-                          "",
-                      });
-                    }
-                  });
-                } catch (_) {}
-
-                let finalTranscript = cacheResult.data.text;
-                try {
-                  const match = window.location.pathname.match(/\/class\/(\d+)/);
-                  const classId = match ? match[1] : null;
-                  if (classId) {
-                    const header = await fetchMetadataHeader(classId, {
-                      generatedBy: cacheResult.data.generatedBy,
-                      provider: cacheResult.data.provider,
-                      // `modelName` fallback covers an older backend deploy.
-                      model: cacheResult.data.model || cacheResult.data.modelName,
-                    });
-                    finalTranscript = header + finalTranscript;
-                  }
-                } catch (e) {
-                  console.error("[Scaler++] Error adding metadata to cache download:", e);
-                }
-
-                const blob = new Blob([finalTranscript], { type: "text/plain" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                const videoTitle = document.title || "";
-                const slugTitle = videoTitle
-                  .replace(/[\\/:*?"<>|]/g, "")
-                  .replace(/\\s+/g, "_")
-                  .substring(0, 80)
-                  .replace(/_+$/, "");
-                a.download = slugTitle ? `${slugTitle}.txt` : "Scaler_Lecture.txt";
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                btn.innerHTML = originalIcon;
-                return;
-            }
-        }
-      }
-    }
-
     chrome.runtime.sendMessage({ type: "GET_VIDEO_URL" }, (response) => {
       // Must check lastError first — if the background SW is inactive,
       // Chrome sets this and throws if we don't read it.
@@ -492,84 +427,6 @@ class VideoDownloader {
       );
     });
   }
-}
-
-async function fetchMetadataHeader(classId, attribution = {}) {
-  if (!classId) return "";
-  
-  let courseName = "N/A";
-  let title = "N/A";
-  let startTime = "N/A";
-  let duration = "N/A";
-
-  try {
-    const [sessionRes, metaRes] = await Promise.allSettled([
-      fetch(`https://www.scaler.com/api/v2/classroom/${classId}/session`, { credentials: "include" }),
-      fetch(`https://www.scaler.com/api/v2/classroom/${classId}/meta`, { credentials: "include" })
-    ]);
-
-    if (sessionRes.status === "fulfilled" && sessionRes.value.ok) {
-      try {
-        const sessionJson = await sessionRes.value.json();
-        const batchLesson = sessionJson?.data?.attributes?.batch_lesson;
-        if (batchLesson) {
-          title = batchLesson.title || "N/A";
-          startTime = batchLesson.start_time || "N/A";
-          duration = batchLesson.duration || "N/A";
-        }
-      } catch (e) {
-        console.error("[Scaler++] Error parsing session metadata:", e);
-      }
-    }
-
-    if (metaRes.status === "fulfilled" && metaRes.value.ok) {
-      try {
-        const metaJson = await metaRes.value.json();
-        courseName = metaJson?.data?.attributes?.academy_module?.name || "N/A";
-      } catch (e) {
-        console.error("[Scaler++] Error parsing meta metadata:", e);
-      }
-    }
-  } catch (err) {
-    console.error("[Scaler++] Error fetching classroom metadata:", err);
-  }
-
-  // Format Start Time
-  let formattedStartTime = startTime;
-  if (startTime && startTime !== "N/A") {
-    try {
-      const date = new Date(startTime);
-      if (!isNaN(date.getTime())) {
-        formattedStartTime = date.toLocaleString();
-      }
-    } catch (e) {}
-  }
-
-  // Format Duration
-  let formattedDuration = duration;
-  if (typeof duration === "number") {
-    formattedDuration = `${duration} minutes`;
-  } else if (duration && duration !== "N/A") {
-    formattedDuration = `${duration} minutes`;
-  }
-
-  // Attribution: who generated the transcript and with what. Older cached
-  // transcripts predate these fields, so fall back to N/A rather than omitting
-  // the lines — keeps the header shape stable across downloads.
-  const generatedBy = attribution.generatedBy || "N/A";
-  const modelUsed = [attribution.provider, attribution.model]
-    .filter(Boolean)
-    .join(", ") || "N/A";
-
-  return `Course Name: ${courseName}\n` +
-         `Lecture Title: ${title}\n` +
-         `Start Time: ${formattedStartTime}\n` +
-         `Duration: ${formattedDuration}\n` +
-         `Generated by: ${generatedBy}\n` +
-         `Model use: ${modelUsed}\n` +
-         `Downloaded via: Scaler++ Chrome Extension\n` +
-         `Developer: Ritesh prajapati\n\n` +
-         `==================================================\n\n`;
 }
 
 // Launch the script

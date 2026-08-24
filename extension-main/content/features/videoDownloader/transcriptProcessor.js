@@ -18,6 +18,7 @@ const modelInput = document.getElementById("model-name");
 const modelLabel = document.getElementById("model-name-label");
 const apiKeyInput = document.getElementById("api-key");
 const getKeyLink = document.getElementById("get-key-link");
+const modelsLink = document.getElementById("models-link");
 
 const CONCURRENCY = 6;
 
@@ -65,7 +66,7 @@ async function checkTranscriptCache(key) {
  * after the transcript file download begins.
  * Fire-and-forget — never throws.
  */
-function saveTranscriptToCache(key, title, text, classId, generatedBy, provider, model) {
+function saveTranscriptToCache(key, title, text, classId, generatedBy, provider, model, countDownload) {
   if (!key || !text) return;
   try {
     chrome.runtime.sendMessage({
@@ -77,6 +78,7 @@ function saveTranscriptToCache(key, title, text, classId, generatedBy, provider,
       generatedBy: generatedBy || "",
       provider: provider || "",
       model: model || "",
+      countDownload: countDownload === true,
     });
     console.log("[Scaler++] Transcript save dispatched to background for key:", key);
   } catch (e) {
@@ -98,6 +100,37 @@ function getUserEmail() {
       resolve("");
     }
   });
+}
+
+/**
+ * After a generation completes, surface a link back to the versions page.
+ *
+ * Injected rather than baked into the HTML so nothing changes visually until
+ * there is actually a new version to compare.
+ */
+function offerVersionsLink() {
+  if (!cacheKey || document.getElementById("versions-link")) return;
+
+  const link = document.createElement("button");
+  link.id = "versions-link";
+  link.type = "button";
+  link.textContent = "Compare all versions of this lecture";
+  link.style.cssText =
+    "background:#18181b;border:1px solid #27272a;color:#a1a1aa;margin-top:10px;" +
+    "font-size:13px;font-weight:600;padding:11px 20px;border-radius:10px;";
+  link.addEventListener("click", () => {
+    const query = new URLSearchParams({
+      url: urlParams.get("url") || "",
+      type: "transcript",
+      title: videoTitle,
+      lectureSlug,
+      classId: classId || "",
+      sourceTabId: urlParams.get("sourceTabId") || "",
+    });
+    window.location.href = `transcriptVersions.html?${query.toString()}`;
+  });
+
+  startBtn.parentNode.insertBefore(link, startBtn.nextSibling);
 }
 
 /**
@@ -444,53 +477,146 @@ if (cacheBtn) {
 // ── Configuration Management ──
 
 const PROVIDER_DEFAULT_MODELS = {
-  groq: "whisper-large-v3",
+  groq: "whisper-large-v3-turbo",
   deepgram: "nova-3",
-  openai: "whisper-1",
-  elevenlabs: "scribe_v1",
+  openai: "gpt-transcribe",
+  elevenlabs: "scribe_v2",
   custom: "",
 };
 
+/**
+ * Defaults these providers used to ship with.
+ *
+ * A stored model that exactly matches an old default was never actually chosen
+ * — it was just whatever the field happened to contain — so it gets upgraded to
+ * the current default. Anything a user genuinely typed is left alone.
+ */
+const SUPERSEDED_DEFAULT_MODELS = {
+  groq: ["whisper-large-v3"],
+  openai: ["whisper-1"],
+  elevenlabs: ["scribe_v1"],
+};
+
+function upgradeSupersededModel(provider, model) {
+  const superseded = SUPERSEDED_DEFAULT_MODELS[provider];
+  if (superseded && superseded.includes(model)) {
+    return PROVIDER_DEFAULT_MODELS[provider] || model;
+  }
+  return model;
+}
+
+/**
+ * Settings are stored PER PROVIDER.
+ *
+ * Every provider needs its own key, base URL and model, so a single shared set
+ * of fields meant switching Groq -> OpenAI -> Groq made you paste the Groq key
+ * again. Shape:
+ *
+ *   { provider: "groq", providers: { groq: {baseUrl, model, apiKey}, ... } }
+ *
+ * `providerSettings` is the in-memory copy; the picker reads and writes it as
+ * you switch, and every change is persisted.
+ */
+let providerSettings = {};
+// The provider the visible fields currently belong to. `change` fires after
+// providerSelect.value has already moved, so the old value has to be tracked.
+let activeProvider = providerSelect.value;
+
+/** Is this provider still offered in the dropdown? */
+function isKnownProvider(provider) {
+  return Boolean(
+    provider && providerSelect.querySelector(`option[value="${provider}"]`),
+  );
+}
+
 function saveConfig() {
-  const config = {
-    provider: providerSelect.value,
+  providerSettings[activeProvider] = {
     baseUrl: baseUrlInput.value,
     model: modelInput.value,
     apiKey: apiKeyInput.value,
   };
-  chrome.storage.local.set({ scaler_transcript_config: config }, () => {
-    console.log("Config saved.");
-  });
+
+  chrome.storage.local.set(
+    {
+      scaler_transcript_config: {
+        provider: providerSelect.value,
+        providers: providerSettings,
+      },
+    },
+    () => {
+      if (chrome.runtime.lastError) {
+        console.warn("Config save failed:", chrome.runtime.lastError.message);
+      }
+    },
+  );
+}
+
+/** Put a provider's remembered values into the visible fields. */
+function applyProviderSettings(provider) {
+  const saved = providerSettings[provider] || {};
+  const option = providerSelect.querySelector(`option[value="${provider}"]`);
+  const defaultUrl = option?.getAttribute("data-url") || "";
+
+  // Custom is the only provider whose URL is the user's to invent.
+  baseUrlInput.value = saved.baseUrl || defaultUrl;
+  modelInput.value =
+    saved.model !== undefined && saved.model !== ""
+      ? upgradeSupersededModel(provider, saved.model)
+      : PROVIDER_DEFAULT_MODELS[provider] || "";
+  apiKeyInput.value = saved.apiKey || "";
+  activeProvider = provider;
 }
 
 function loadConfig() {
   chrome.storage.local.get(["scaler_transcript_config"], (result) => {
     const config = result.scaler_transcript_config;
+
     if (config) {
-      if (config.provider) providerSelect.value = config.provider;
-      if (config.baseUrl) baseUrlInput.value = config.baseUrl;
-      if (config.apiKey) apiKeyInput.value = config.apiKey;
-      if (config.model !== undefined) {
-        modelInput.value = config.model;
-      } else {
-        modelInput.value = PROVIDER_DEFAULT_MODELS[providerSelect.value] || "";
+      if (config.providers) {
+        providerSettings = config.providers;
+      } else if (config.baseUrl || config.model || config.apiKey) {
+        // Migrate the old single-slot shape onto whichever provider it belonged
+        // to, so nobody has to re-enter a key they already had.
+        providerSettings = {
+          [config.provider || providerSelect.value]: {
+            baseUrl: config.baseUrl || "",
+            model: config.model || "",
+            apiKey: config.apiKey || "",
+          },
+        };
+      }
+      // Only select a provider that still exists. A stored value for a
+      // provider that has since been removed leaves selectedIndex at -1, and
+      // every read of providerSelect.options[selectedIndex] then throws —
+      // taking the whole config block down and bricking the page.
+      if (config.provider && isKnownProvider(config.provider)) {
+        providerSelect.value = config.provider;
+      } else if (config.provider) {
+        console.warn(
+          `[Scaler++] Stored provider "${config.provider}" no longer exists — falling back to ${providerSelect.value}.`,
+        );
       }
     }
+
+    applyProviderSettings(providerSelect.value);
     updateProviderLink(false);
   });
 }
 
-function updateProviderLink(shouldResetModel = true) {
+function updateProviderLink(applySaved = true) {
+  if (providerSelect.selectedIndex < 0) providerSelect.selectedIndex = 0;
   const selectedOption = providerSelect.options[providerSelect.selectedIndex];
+  if (!selectedOption) return;
   const url = selectedOption.getAttribute("data-url");
   const link = selectedOption.getAttribute("data-link");
+  const modelsUrl = selectedOption.getAttribute("data-models");
 
-  if (providerSelect.value !== "custom" && url) {
+  // Switching provider restores that provider's own key/model/URL rather than
+  // resetting to the default and discarding what worked last time.
+  if (applySaved) {
+    applyProviderSettings(providerSelect.value);
+  } else if (providerSelect.value !== "custom" && url && !baseUrlInput.value) {
     baseUrlInput.value = url;
-  }
-
-  if (shouldResetModel) {
-    modelInput.value = PROVIDER_DEFAULT_MODELS[providerSelect.value] || "";
   }
 
   const defaultModel = PROVIDER_DEFAULT_MODELS[providerSelect.value];
@@ -512,10 +638,23 @@ function updateProviderLink(shouldResetModel = true) {
     getKeyLink.style.display = "none";
   }
 
+  if (modelsLink) {
+    if (modelsUrl) {
+      modelsLink.href = modelsUrl;
+      modelsLink.style.display = "inline-block";
+    } else {
+      modelsLink.style.display = "none";
+    }
+  }
+
   saveConfig();
 }
 
-providerSelect.addEventListener("change", () => updateProviderLink(true));
+providerSelect.addEventListener("change", () => {
+  // Persist the fields under the provider they belong to BEFORE switching away.
+  saveConfig();
+  updateProviderLink(true);
+});
 baseUrlInput.addEventListener("input", saveConfig);
 modelInput.addEventListener("input", saveConfig);
 apiKeyInput.addEventListener("input", saveConfig);
@@ -887,6 +1026,8 @@ startBtn.addEventListener("click", async () => {
           userEmail,
           providerSelect.value,
           modelName,
+          // The file was handed to the user a few lines above, so this counts.
+          true,
         );
       } else {
         log("Skipping cache save: Some chunks failed to transcribe.");
@@ -900,6 +1041,11 @@ startBtn.addEventListener("click", async () => {
       provider: providerSelect.value,
       model: modelName,
     });
+
+    // Offer a way back to the versions list. The transcript just generated is
+    // now one version among however many others exist, and comparing them is
+    // the whole point of keeping them all.
+    offerVersionsLink();
   } catch (err) {
     log(`❌ Error: ${err.message}`);
     console.error(err);

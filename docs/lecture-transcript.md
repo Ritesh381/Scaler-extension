@@ -42,12 +42,88 @@ Two entry points hit the cache:
 - **On the processor page** — a "Download Cached Transcript" button is shown whenever a lookup key
   exists, so the cache can be used without configuring anything.
 
+## Versions
+
+A lecture keeps **every** transcript ever generated for it. The old cache stored one
+transcript and overwrote it only when the incoming text had **more bytes**, which
+systematically preferred the worst output: hallucination loops emit more text, and UTF-8
+makes non-Latin scripts ~3x heavier than ASCII, so a wrong-language transcript almost
+always beat a correct English one. A good transcript could not displace a bad one.
+
+Within one lecture, identical text collapses onto the same version instead of creating
+duplicates.
+
+### Ranking
+
+`getCachedTranscript` returns the best-ranked version, so extension builds that predate
+versioning keep working and simply receive whatever currently ranks highest:
+
+1. **net votes** (`upvotes - downvotes`) — the only signal that directly says "this is garbage"
+2. **download count** — weak but real evidence
+3. **recency**
+
+A downvote therefore demotes a version for everyone without anyone deleting it.
+
+### Endpoints
+
+| Route | Purpose |
+|---|---|
+| `GET /api/transcript?slug=` | Best version. Unchanged response shape + `versionId`, `versionCount`. |
+| `GET /api/transcript/versions?slug=&email=` | Metadata for all versions, newest first, **no text**. `email` marks the viewer's own votes. |
+| `GET /api/transcript/version/:versionId` | One version including its text. |
+| `POST /api/transcript/version/:versionId/download` | Counts a deliberate download. |
+| `POST /api/transcript/version/:versionId/vote` | `{ email, vote }` — `"up"`, `"down"`, or `null` to withdraw. |
+| `DELETE /api/transcript/version/:versionId` | Admin only (cookie JWT, not the extension token). |
+
+Transcripts routinely exceed 50 KB, so the list endpoint never carries text — the versions
+page fetches a body only when a row is expanded or downloaded, and memoises it.
+
+### Counting downloads
+
+`download_count` is bumped in exactly three places, each meaning a file actually reached
+someone, and each guarded so the same download is never counted twice:
+
+| Path | Counted by | Guard |
+|---|---|---|
+| **Download** on a version | `POST /version/:id/download` | — |
+| **Generating** a version | `POST /save` with `countDownload: true` | the processor writes the `.txt` first, so a brand-new version starts at 1, not 0 |
+| **Older builds** taking whatever `GET /api/transcript` served | `POST /api/users/download` | only when the report carries **no** `versionId` and `source !== "generated"` |
+
+Counting the plain `GET` itself is **not** an option: `lectureSummary.js` hits the same endpoint
+just to ask "does a transcript exist?", and that probe fires every time the summary panel opens.
+The download *report* is the only trustworthy signal that a file reached a person, so old builds
+are counted from there — `recordDownloadForLecture` re-resolves the same best-ranked version the
+`GET` would have served and bumps that one.
+
+Opening the versions page and expanding a preview deliberately do **not** count, or the number
+stops meaning "people chose this one".
+
+Votes live in `transcript_version_votes` as one row per `(version, email)` and are tallied
+on read rather than kept in counter columns, so concurrent votes cannot lose a race.
+
+### Extension entry points
+
+The downloader menu has a single **Transcript** item, which always opens the versions
+page — with no versions yet it shows an empty state whose "Create the first version"
+button leads to the same place the header button does. The content script no longer checks
+the cache or downloads anything itself; the versions page owns all of it.
+
+`transcriptVersions.html` is the versions page; its "Create a version" button hands off to
+`transcriptProcessor.html`, carrying the stream URL forward since that page needs it to
+pull audio.
+
+`versionId` is `sha256(lectureId + NUL + trimmed text)`. Scoping the hash to the lecture
+matters: the legacy data stores the same lecture under several slug formats (a UUID slug,
+a kebab slug, the raw title), and hashing text alone collapsed those into one document
+owned by whichever lecture was written first, leaving the others with no version at all.
+
 ## Attribution storage
 
 | Where | Columns | Notes |
 |---|---|---|
-| `transcripts` (Supabase index) + Mongo doc | `generated_by`, `provider`, `model` | One row per lecture. Transcript-only table, so no sparse columns. |
-| `download_history` | `provider`, `model`, `source` | `source` is `cache` or `generated`. A CHECK constraint forces all three to be NULL unless `type = 'transcript'`, so video/audio rows are unaffected. |
+| `transcript_versions` (Supabase) + Mongo `transcript_versions` | `generated_by`, `provider`, `model`, `char_count`, `download_count` | One row per version. Text lives only in Mongo. |
+| `transcripts` (Supabase index) + Mongo doc | `generated_by`, `provider`, `model` | Now a lecture-level index row. Its Mongo `text` is legacy — read by the backfill and by `getCachedTranscript` as a fallback, never written again. |
+| `download_history` | `provider`, `model`, `source`, `version_id` | `source` is `cache` or `generated`. A CHECK constraint forces all four to be NULL unless `type = 'transcript'`, so video/audio rows are unaffected. |
 
 `source = 'generated'` is the count of downloads that actually invoked a provider;
 `source = 'cache'` rows copy the cached transcript's provider/model, so the log records what the
@@ -61,18 +137,46 @@ attribution from non-transcript rows (a stray field would trip the CHECK and los
 drops an unrecognised `source` rather than rejecting the request. `model` is the current field
 name; `modelName` is still accepted on input and echoed on output for builds that predate it.
 
+**Migration.** `backend/migrations/001_transcript_versions.sql` creates the two new tables
+and recreates the `download_history` CHECK. Then `node backfill_transcript_versions.js`
+promotes every legacy transcript into a version, seeding `download_count` from
+`download_history` so previously popular lectures do not start at zero and lose the
+tie-break to a brand-new upload. The backfill is idempotent — version ids are
+content-addressed, so re-running skips whatever is already promoted.
+
 A generated transcript is only uploaded when **no chunk failed** (`hasFailures === false`), so a
 partial transcript never poisons the cache.
 
 ## Provider configuration (processor page)
 
-Provider dropdown + Base URL + Model + API key, persisted in `chrome.storage`
-(`saveConfig` / `loadConfig`), with a "get an API key" link per provider and an eye toggle for the
-key field. `PROVIDER_DEFAULT_MODELS` fills a sensible default model when the provider changes.
+Provider dropdown + Base URL + Model + API key, persisted in `chrome.storage`, with a
+"get an API key" link and a "browse available models" link per provider, and an eye toggle for
+the key field.
 
-For a hand-entered **custom** provider, `validateCustomInputs()` runs before any work: it checks
-the URL shape and warns (with a suggested fix, and a `confirm` to override) when the path doesn't
-end in `/audio/transcriptions`, which is where OpenAI-compatible transcription lives.
+**Settings are stored per provider**, not globally:
+
+```js
+{ provider: "groq", providers: { groq: { baseUrl, model, apiKey }, openai: { … } } }
+```
+
+Every provider needs its own key, so a single shared field meant switching Groq → OpenAI → Groq
+forced you to paste the Groq key again. `saveConfig` writes the visible fields under
+`activeProvider` (tracked separately, because `change` fires *after* `providerSelect.value` has
+already moved), and `applyProviderSettings` restores them on the way back. The old single-slot
+shape is migrated on first load, so no one re-enters a key they already had.
+
+`PROVIDER_DEFAULT_MODELS` supplies the default model:
+
+| Provider | Default |
+|---|---|
+| Groq | `whisper-large-v3-turbo` |
+| Deepgram | `nova-3` |
+| OpenAI | `gpt-transcribe` |
+| ElevenLabs | `scribe_v2` |
+
+`SUPERSEDED_DEFAULT_MODELS` upgrades a stored model that exactly matches a *previous* default
+(`whisper-large-v3`, `whisper-1`, `scribe_v1`) — those were never chosen, they were just whatever
+the field happened to hold. A model the user actually typed is left alone.
 
 ## Three steps
 

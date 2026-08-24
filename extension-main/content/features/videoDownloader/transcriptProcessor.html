@@ -166,6 +166,18 @@
       margin-bottom: 14px;
     }
 
+    /* The key link and the models link sit on one row, separated by a divider. */
+    #models-link {
+      margin-left: 12px;
+      padding-left: 12px;
+      border-left: 1px solid #3f3f46;
+      color: #a1a1aa;
+    }
+
+    #models-link:hover {
+      color: #3484f0;
+    }
+
     .service-link:hover {
       text-decoration: underline;
     }
@@ -314,18 +326,24 @@
       <label for="provider-select">Service Provider (Suggestion):</label>
       <select id="provider-select">
         <option value="groq" data-url="https://api.groq.com/openai/v1/audio/transcriptions"
-          data-link="https://console.groq.com/keys" selected>Groq (Recommended)</option>
+          data-link="https://console.groq.com/keys"
+          data-models="https://console.groq.com/docs/models" selected>Groq (Recommended)</option>
         <option value="deepgram" data-url="https://api.deepgram.com/v1/listen"
-          data-link="https://console.deepgram.com/">Deepgram</option>
+          data-link="https://console.deepgram.com/"
+          data-models="https://developers.deepgram.com/docs/models-languages-overview">Deepgram</option>
         <option value="openai" data-url="https://api.openai.com/v1/audio/transcriptions"
-          data-link="https://platform.openai.com/api-keys">OpenAI (Whisper)</option>
+          data-link="https://platform.openai.com/api-keys"
+          data-models="https://platform.openai.com/docs/models">OpenAI</option>
         <option value="elevenlabs" data-url="https://api.elevenlabs.io/v1/speech-to-text"
-          data-link="https://elevenlabs.io/api">ElevenLabs</option>
-        <option value="custom" data-url="" data-link="">Custom (OpenAI Compatible API)</option>
+          data-link="https://elevenlabs.io/api"
+          data-models="https://elevenlabs.io/docs/overview/models">ElevenLabs</option>
+        <option value="custom" data-url="" data-link="" data-models="">Custom (OpenAI Compatible API)</option>
       </select>
 
       <a id="get-key-link" class="service-link" href="https://console.groq.com/keys" target="_blank">Get API Key for
         Groq</a>
+      <a id="models-link" class="service-link" href="https://console.groq.com/docs/models" target="_blank">Browse
+        available models</a>
 
       <label for="base-url">Base URL:</label>
       <input type="text" id="base-url" placeholder="https://api.groq.com/openai/v1/audio/transcriptions"

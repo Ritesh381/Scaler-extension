@@ -183,7 +183,7 @@ class CustomAudioTranscriber {
             } else if (isElevenLabs) {
               text = await this._transcribeElevenLabs(blob);
             } else {
-              const model = this.modelName || (isGroq ? "whisper-large-v3" : "whisper-1");
+              const model = this.modelName || (isGroq ? "whisper-large-v3-turbo" : "gpt-transcribe");
               text = await this._transcribeOpenAICompatible(blob, model);
             }
             break;
@@ -500,7 +500,7 @@ class CustomAudioTranscriber {
     const filename = blob.type === "audio/mpeg" ? "audio.m4a" : "audio.wav";
 
     const formData = new FormData();
-    formData.append("model_id", this.modelName || "scribe_v1");
+    formData.append("model_id", this.modelName || "scribe_v2");
     formData.append("file", blob, filename);
 
     const res = await fetch(this.baseUrl, {

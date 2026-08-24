@@ -8,6 +8,10 @@
 const BACKEND_BASE_URL = "https://scalerbackend.vercel.app";
 // const BACKEND_BASE_URL = "http://localhost:3001";
 
+// Shared bearer token for the transcript/transcribe endpoints.
+const EXTENSION_TOKEN =
+  "Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345";
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Fetch custom messages ────────────────────────────────
   if (message.action === "fetchCustomMessages") {
@@ -140,6 +144,92 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // ── Transcript versions ─────────────────────────────────────
+  // Every transcription of a lecture is kept as its own version. These three
+  // handlers back the versions page: list (metadata only — transcripts are
+  // routinely 50 KB+, so text never rides along), fetch one version's text,
+  // and record a deliberate download.
+  if (message.action === "getTranscriptVersions") {
+    const query = new URLSearchParams({ slug: message.slug || "" });
+    if (message.email) query.set("email", message.email);
+
+    fetch(`${BACKEND_BASE_URL}/api/transcript/versions?${query.toString()}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${EXTENSION_TOKEN}` },
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => sendResponse({ success: true, data }))
+      .catch((error) => {
+        console.warn("Scaler++: Error listing transcript versions:", error.message);
+        sendResponse({ success: false, error: error.message });
+      });
+
+    return true;
+  }
+
+  if (message.action === "getTranscriptVersion") {
+    fetch(
+      `${BACKEND_BASE_URL}/api/transcript/version/${encodeURIComponent(message.versionId || "")}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${EXTENSION_TOKEN}` },
+      },
+    )
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => sendResponse({ success: true, data }))
+      .catch((error) => {
+        console.warn("Scaler++: Error fetching transcript version:", error.message);
+        sendResponse({ success: false, error: error.message });
+      });
+
+    return true;
+  }
+
+  if (message.action === "recordVersionDownload") {
+    fetch(
+      `${BACKEND_BASE_URL}/api/transcript/version/${encodeURIComponent(message.versionId || "")}/download`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${EXTENSION_TOKEN}` },
+      },
+    )
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => sendResponse({ success: true, data }))
+      .catch((error) => {
+        console.warn("Scaler++: Error recording version download:", error.message);
+        sendResponse({ success: false, error: error.message });
+      });
+
+    return true;
+  }
+
+  if (message.action === "voteTranscriptVersion") {
+    fetch(
+      `${BACKEND_BASE_URL}/api/transcript/version/${encodeURIComponent(message.versionId || "")}/vote`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${EXTENSION_TOKEN}`,
+        },
+        // vote is "up", "down", or null to withdraw — null must survive the
+        // round trip, so it is sent explicitly rather than defaulted away.
+        body: JSON.stringify({
+          email: message.email || "",
+          vote: message.vote === "up" || message.vote === "down" ? message.vote : null,
+        }),
+      },
+    )
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => sendResponse({ success: true, data }))
+      .catch((error) => {
+        console.warn("Scaler++: Error voting on transcript version:", error.message);
+        sendResponse({ success: false, error: error.message });
+      });
+
+    return true;
+  }
+
   // ── Save transcript to backend cache ────────────────────────
   // Handled here in the service worker so the save completes even
   // if the transcriptProcessor tab is closed right after the download
@@ -159,6 +249,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         generatedBy: message.generatedBy || "",
         provider: message.provider || "",
         model: message.model || "",
+        // The processor page downloads the file the moment it finishes, so
+        // that save also counts as a download of the new version.
+        countDownload: message.countDownload === true,
       }),
     })
       .then((res) => {

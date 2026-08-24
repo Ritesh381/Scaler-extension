@@ -46,7 +46,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const title = request.payload.title || "";
     const lectureSlug = request.payload.lectureSlug || "";
     const classId = request.payload.classId || "";
-    const htmlPage = type === "transcript" ? "transcriptProcessor.html" : "videoProcessor.html";
+    // Transcripts always land on the versions page: a lecture can have many
+    // transcriptions, and picking or contributing one belongs there. The
+    // versions page links on to transcriptProcessor.html itself.
+    const htmlPage =
+      type === "transcript" ? "transcriptVersions.html" : "videoProcessor.html";
     const processorUrl = chrome.runtime.getURL(
       `content/features/videoDownloader/${htmlPage}?url=${encodeURIComponent(url)}&type=${type}&title=${encodeURIComponent(title)}&lectureSlug=${encodeURIComponent(lectureSlug)}&classId=${encodeURIComponent(classId)}&sourceTabId=${sender.tab?.id || ''}`,
     );

@@ -612,6 +612,25 @@
       return;
     }
     _downloadFile(`${_safeFileName(_lectureName(lecture))}-transcript.txt`, text, "text/plain;charset=utf-8");
+
+    // This panel handed over a real transcript but never reported it, so these
+    // downloads were invisible to both the user counters and the per-version
+    // count that decides which transcript everyone gets served.
+    try {
+      const email = await _getUserEmail();
+      if (email && chrome.runtime?.id) {
+        chrome.runtime.sendMessage({
+          action: "trackDownload",
+          email,
+          downloadType: "transcript",
+          lecture: _lectureName(lecture) || "",
+          lectureSlug: lecture.slug,
+          source: "cache",
+        });
+      }
+    } catch (_) {
+      /* tracking must never break the download */
+    }
   }
 
   // A download icon button that opens a small menu: Transcript / Notes.
