@@ -43,7 +43,15 @@ async function checkTranscriptCache(key) {
     );
     if (!res.ok) return { cached: false };
     const data = await res.json();
-    return data.cached ? { cached: true, text: data.text } : { cached: false };
+    return data.cached
+      ? {
+          cached: true,
+          text: data.text,
+          generatedBy: data.generatedBy || "",
+          provider: data.provider || "",
+          model: data.model || data.modelName || "",
+        }
+      : { cached: false };
   } catch (e) {
     console.warn("[Scaler++] Cache lookup failed:", e.message);
     return { cached: false };
@@ -57,7 +65,7 @@ async function checkTranscriptCache(key) {
  * after the transcript file download begins.
  * Fire-and-forget — never throws.
  */
-function saveTranscriptToCache(key, title, text, classId, generatedBy) {
+function saveTranscriptToCache(key, title, text, classId, generatedBy, provider, model) {
   if (!key || !text) return;
   try {
     chrome.runtime.sendMessage({
@@ -67,6 +75,8 @@ function saveTranscriptToCache(key, title, text, classId, generatedBy) {
       text: text.trim(),
       classId: classId ? String(classId).trim() : "",
       generatedBy: generatedBy || "",
+      provider: provider || "",
+      model: model || "",
     });
     console.log("[Scaler++] Transcript save dispatched to background for key:", key);
   } catch (e) {
@@ -75,10 +85,26 @@ function saveTranscriptToCache(key, title, text, classId, generatedBy) {
 }
 
 /**
+ * Resolve the signed-in Scaler++ user email from sync storage.
+ * Resolves to "" when unavailable — never rejects.
+ */
+function getUserEmail() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.sync.get(["scaler_user"], (result) => {
+        resolve(result?.scaler_user?.email || "");
+      });
+    } catch (_) {
+      resolve("");
+    }
+  });
+}
+
+/**
  * Track completed download to the backend.
  * Fire-and-forget.
  */
-function trackCompletedDownload(type) {
+function trackCompletedDownload(type, attribution = {}) {
   try {
     chrome.storage.sync.get(["scaler_user"], (result) => {
       const email = result?.scaler_user?.email;
@@ -89,6 +115,11 @@ function trackCompletedDownload(type) {
           downloadType: type,
           lecture: videoTitle || "",
           lectureSlug: cacheKey,
+          // "cache" = served from the shared cache, no API call made;
+          // "generated" = this download actually invoked the provider.
+          source: attribution.source || "",
+          provider: attribution.provider || "",
+          model: attribution.model || "",
         });
       }
     });
@@ -364,7 +395,11 @@ if (cacheBtn) {
       let finalTranscript = cached.text;
       try {
         if (classId) {
-          const header = await fetchMetadataHeader(classId);
+          const header = await fetchMetadataHeader(classId, {
+            generatedBy: cached.generatedBy,
+            provider: cached.provider,
+            model: cached.model,
+          });
           finalTranscript = header + finalTranscript;
         }
       } catch (e) {
@@ -384,7 +419,11 @@ if (cacheBtn) {
       const wordCount = cached.text.split(/\s+/).length;
       log(`📦 ${wordCount} words downloaded from cache.`);
       cacheBtn.textContent = "✅ Downloaded from Cache";
-      trackCompletedDownload("transcript");
+      trackCompletedDownload("transcript", {
+        source: "cache",
+        provider: cached.provider,
+        model: cached.model,
+      });
     } else {
       log("Cache MISS — no cached transcript found for this lecture.");
       statusText.innerText = "Not in cache. Use your API key to transcribe.";
@@ -803,11 +842,15 @@ startBtn.addEventListener("click", async () => {
     }
 
     // Save locally
-    // Save locally
+    const userEmail = await getUserEmail();
     let finalTranscript = transcript;
     try {
       if (classId) {
-        const header = await fetchMetadataHeader(classId);
+        const header = await fetchMetadataHeader(classId, {
+          generatedBy: userEmail,
+          provider: providerSelect.value,
+          model: modelName,
+        });
         finalTranscript = header + finalTranscript;
       }
     } catch (e) {
@@ -835,12 +878,16 @@ startBtn.addEventListener("click", async () => {
     if (cacheKey) {
       if (!hasFailures) {
         log("Saving transcript to cache for future use...");
-        // Resolve the user email first (sync storage is fast), then hand off
-        // to the service worker which outlives this page context.
-        chrome.storage.sync.get(["scaler_user"], (r) => {
-          const generatedBy = r?.scaler_user?.email || "";
-          saveTranscriptToCache(cacheKey, videoTitle, transcript, classId, generatedBy);
-        });
+        // Hand off to the service worker, which outlives this page context.
+        saveTranscriptToCache(
+          cacheKey,
+          videoTitle,
+          transcript,
+          classId,
+          userEmail,
+          providerSelect.value,
+          modelName,
+        );
       } else {
         log("Skipping cache save: Some chunks failed to transcribe.");
       }
@@ -848,7 +895,11 @@ startBtn.addEventListener("click", async () => {
     // ─────────────────────────────────────────────────────────
 
     // Track
-    trackCompletedDownload("transcript");
+    trackCompletedDownload("transcript", {
+      source: "generated",
+      provider: providerSelect.value,
+      model: modelName,
+    });
   } catch (err) {
     log(`❌ Error: ${err.message}`);
     console.error(err);
@@ -864,7 +915,7 @@ startBtn.addEventListener("click", async () => {
   }
 });
 
-async function fetchMetadataHeader(classId) {
+async function fetchMetadataHeader(classId, attribution = {}) {
   if (!classId) return "";
   
   let courseName = "N/A";
@@ -923,10 +974,20 @@ async function fetchMetadataHeader(classId) {
     formattedDuration = `${duration} minutes`;
   }
 
+  // Attribution: who generated the transcript and with what. Older cached
+  // transcripts predate these fields, so fall back to N/A rather than omitting
+  // the lines — keeps the header shape stable across downloads.
+  const generatedBy = attribution.generatedBy || "N/A";
+  const modelUsed = [attribution.provider, attribution.model]
+    .filter(Boolean)
+    .join(", ") || "N/A";
+
   return `Course Name: ${courseName}\n` +
          `Lecture Title: ${title}\n` +
          `Start Time: ${formattedStartTime}\n` +
          `Duration: ${formattedDuration}\n` +
+         `Generated by: ${generatedBy}\n` +
+         `Model use: ${modelUsed}\n` +
          `Downloaded via: Scaler++ Chrome Extension\n` +
          `Developer: Ritesh prajapati\n\n` +
          `==================================================\n\n`;

@@ -271,19 +271,29 @@ class VideoDownloader {
       menu.style.display = "none";
     };
 
-    // Transcript Option
+    // Transcript Options — split into two explicit choices so we never have to
+    // interrupt with a confirm() dialog. "Cache" takes the fast path when a
+    // shared transcript exists; "New" always goes straight to the processor.
+    const transcriptCacheOption = document.createElement("div");
+    transcriptCacheOption.innerText = "Transcript Cache \u26A1";
+    this.styleOption(transcriptCacheOption);
+    transcriptCacheOption.onclick = () => {
+      this.startDownload("transcript", { useCache: true });
+      menu.style.display = "none";
+    };
 
-    const transcriptOption = document.createElement("div");
-    transcriptOption.innerText = "Transcript";
-    this.styleOption(transcriptOption);
-    transcriptOption.onclick = () => {
-      this.startDownload("transcript");
+    const transcriptNewOption = document.createElement("div");
+    transcriptNewOption.innerText = "Transcript New";
+    this.styleOption(transcriptNewOption);
+    transcriptNewOption.onclick = () => {
+      this.startDownload("transcript", { useCache: false });
       menu.style.display = "none";
     };
 
     menu.appendChild(audioOption);
     menu.appendChild(videoOption);
-    menu.appendChild(transcriptOption);
+    menu.appendChild(transcriptCacheOption);
+    menu.appendChild(transcriptNewOption);
 
     container.appendChild(button);
     container.appendChild(menu);
@@ -318,7 +328,8 @@ class VideoDownloader {
     opt.onmouseout = () => (opt.style.background = "transparent");
   }
 
-  async startDownload(type) {
+  async startDownload(type, opts = {}) {
+    const useCache = opts.useCache === true;
     const btn = document
       .getElementById("scaler-video-downloader")
       .querySelector("a");
@@ -355,7 +366,7 @@ class VideoDownloader {
       );
     }
     
-    if (type === "transcript") {
+    if (type === "transcript" && useCache) {
       const cacheKey = slug || document.title;
       if (cacheKey) {
         const cacheResult = await new Promise(resolve => {
@@ -368,8 +379,7 @@ class VideoDownloader {
         if (cacheResult && cacheResult.success && cacheResult.data && cacheResult.data.cached && cacheResult.data.text) {
             console.log("[Scaler++] Transcript loaded from cache.");
 
-            const wantDownload = confirm("A cached transcript was found. Click OK to download it, or click Cancel to generate your own transcript.");
-            if (wantDownload) {
+            {
                 // Track completed download
                 try {
                   chrome.storage.sync.get(["scaler_user"], (result) => {
@@ -381,6 +391,13 @@ class VideoDownloader {
                         downloadType: "transcript",
                         lecture: document.title || "",
                         lectureSlug: cacheKey,
+                        // Served from the shared cache — no provider call made.
+                        source: "cache",
+                        provider: cacheResult.data.provider || "",
+                        model:
+                          cacheResult.data.model ||
+                          cacheResult.data.modelName ||
+                          "",
                       });
                     }
                   });
@@ -391,7 +408,12 @@ class VideoDownloader {
                   const match = window.location.pathname.match(/\/class\/(\d+)/);
                   const classId = match ? match[1] : null;
                   if (classId) {
-                    const header = await fetchMetadataHeader(classId);
+                    const header = await fetchMetadataHeader(classId, {
+                      generatedBy: cacheResult.data.generatedBy,
+                      provider: cacheResult.data.provider,
+                      // `modelName` fallback covers an older backend deploy.
+                      model: cacheResult.data.model || cacheResult.data.modelName,
+                    });
                     finalTranscript = header + finalTranscript;
                   }
                 } catch (e) {
@@ -472,7 +494,7 @@ class VideoDownloader {
   }
 }
 
-async function fetchMetadataHeader(classId) {
+async function fetchMetadataHeader(classId, attribution = {}) {
   if (!classId) return "";
   
   let courseName = "N/A";
@@ -531,10 +553,20 @@ async function fetchMetadataHeader(classId) {
     formattedDuration = `${duration} minutes`;
   }
 
+  // Attribution: who generated the transcript and with what. Older cached
+  // transcripts predate these fields, so fall back to N/A rather than omitting
+  // the lines — keeps the header shape stable across downloads.
+  const generatedBy = attribution.generatedBy || "N/A";
+  const modelUsed = [attribution.provider, attribution.model]
+    .filter(Boolean)
+    .join(", ") || "N/A";
+
   return `Course Name: ${courseName}\n` +
          `Lecture Title: ${title}\n` +
          `Start Time: ${formattedStartTime}\n` +
          `Duration: ${formattedDuration}\n` +
+         `Generated by: ${generatedBy}\n` +
+         `Model use: ${modelUsed}\n` +
          `Downloaded via: Scaler++ Chrome Extension\n` +
          `Developer: Ritesh prajapati\n\n` +
          `==================================================\n\n`;

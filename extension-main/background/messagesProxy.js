@@ -76,6 +76,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         type: message.downloadType,
         lecture: message.lecture,
         lectureSlug: message.lectureSlug || "",
+        // Transcript-only attribution. The backend ignores these on
+        // video/audio rows, so sending undefined is harmless.
+        provider: message.provider || "",
+        model: message.model || "",
+        source: message.source || "",
       }),
     }).catch(() => {
       /* fail silently */
@@ -152,6 +157,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         text: (message.text || "").trim(),
         classId: (message.classId || "").toString().trim(),
         generatedBy: message.generatedBy || "",
+        provider: message.provider || "",
+        model: message.model || "",
       }),
     })
       .then((res) => {
