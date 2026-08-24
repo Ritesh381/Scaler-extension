@@ -412,6 +412,34 @@ function buildThemeCss(theme, fontUrl) {
         #ffffff
       ) !important;
     }
+
+    /* ...and the card text that SITS on that scrim. Those labels are authored
+       white, so the root invert paints them BLACK — onto a scrim the rule above
+       deliberately keeps dark. The two fixes have to move together: keeping the
+       scrim dark is only correct if its text stays light. Same pre-inversion
+       trick, applied to the color: black here renders WHITE after the root
+       invert (achromatic, so it holds across every dark theme). */
+    html.${r} .past-events__headline,
+    html.${r} .past-events__desc,
+    html.${r} .past-events__close-button {
+      color: #000000 !important;
+    }
+
+    /* The Scaler wordmark is dark navy ink on a TRANSPARENT canvas, so the
+       generic media rule above works against it: the root invert had already
+       made it legible (dark ink -> light ink) and un-inverting it puts it back
+       to dark-on-dark, i.e. invisible against the themed page. Opt it out so it
+       rides the root invert like the surrounding header text does.
+
+       Scoped deliberately narrowly — to this one asset and its two mount points
+       (page header + slide-out sidebar) — rather than to logos in general: a
+       blanket "don't un-invert small images" rule would also flip genuinely
+       dark ARTWORK, which the media rule is there to protect. */
+    html.${r} img[src*="sst-logo"],
+    html.${r} img[alt="sst_logo"],
+    html.${r} .sidebar__header img[alt="logo"] {
+      filter: none !important;
+    }
   `;
 
   if (theme.font && fontUrl) css += buildFontCss(theme.id, fontUrl);

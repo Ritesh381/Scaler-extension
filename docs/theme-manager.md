@@ -83,6 +83,17 @@ There is also a hand-written fix for `.past-events__info::after`, a dark gradien
 root invert turns into a white glow — it is re-authored as a **pre-inverted** white gradient so it
 renders black after inversion.
 
+The card text that sits **on** that scrim (`.past-events__headline`, `.past-events__desc`,
+`.past-events__close-button`) is authored white, so the root invert paints it black — onto a scrim
+we just forced to stay dark. It is pre-inverted the same way (`color: #000` renders white), and the
+two fixes have to move together: keeping the scrim dark is only correct while its text stays light.
+
+Finally, the Scaler wordmark (`img[src*="sst-logo"]`, mounted in the page header and the slide-out
+sidebar) opts **out** of the media un-invert with `filter: none`. It is dark ink on a transparent
+canvas, so un-inverting it — correct for a photo — puts it back to dark-on-dark. The opt-out is
+scoped to that one asset on purpose: a general "small images should invert" rule would also flip
+genuinely dark artwork, which the media rule exists to protect.
+
 ## Per-page decision
 
 Some Scaler pages (the live classroom) are already dark. Inverting those is wrong.

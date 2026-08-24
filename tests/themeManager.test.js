@@ -233,6 +233,67 @@ test("session-card ::after scrim is pre-inverted so it stays a dark shadow (all 
   }
 });
 
+test("session-card text on the scrim is pre-inverted so it stays light (all dark themes)", () => {
+  // Regression (issue #31): .past-events__headline / __desc / __close-button are
+  // authored WHITE, so the root invert paints them black — on top of the scrim
+  // that the rule above deliberately keeps dark, leaving black-on-dark. They must
+  // be re-authored pre-inverted (black → renders white) in every dark theme.
+  for (const id of ["dark", "midnight", "sepia", "dracula", "nord", "solarized"]) {
+    const { window } = loadFeature(THEME_FILE);
+    window.applyTheme(id);
+    const css = window.document.getElementById(STYLE_ID).textContent;
+    const rule = css.match(
+      /\.past-events__headline[^{]*\{[^}]*\}/,
+    );
+    assert.ok(rule, `${id}: past-events text rule present`);
+    for (const sel of ["__headline", "__desc", "__close-button"]) {
+      assert.ok(
+        css.includes(`.past-events${sel}`),
+        `${id}: .past-events${sel} is covered`,
+      );
+    }
+    // Black here renders WHITE after the root invert. A raw #fff would render
+    // black — the bug this guards against.
+    assert.match(rule[0], /color:\s*#000000\s*!important/, `${id}: text pre-inverted to black`);
+    assert.ok(!/color:\s*#fff/i.test(rule[0]), `${id}: text is not authored white`);
+  }
+});
+
+test("the Scaler wordmark opts OUT of the media un-invert so it stays legible", () => {
+  // Regression (issue #31): the logo is dark ink on a transparent canvas. The
+  // generic `img` counter-invert (which exists to keep photos true-coloured) put
+  // it back to dark-on-dark. It must be excluded so it rides the root invert.
+  for (const id of ["dark", "midnight", "sepia", "dracula", "nord", "solarized"]) {
+    const { window } = loadFeature(THEME_FILE);
+    window.applyTheme(id);
+    const css = window.document.getElementById(STYLE_ID).textContent;
+    const rule = css.match(/html\.[\w-]+ img\[src\*="sst-logo"\][^{]*\{[^}]*\}/);
+    assert.ok(rule, `${id}: logo opt-out rule present`);
+    assert.match(rule[0], /filter:\s*none\s*!important/, `${id}: logo is not counter-inverted`);
+    // Both mount points: page header and the slide-out sidebar.
+    assert.ok(rule[0].includes('img[alt="sst_logo"]'), `${id}: header logo covered`);
+    assert.ok(
+      rule[0].includes('.sidebar__header img[alt="logo"]'),
+      `${id}: sidebar logo covered`,
+    );
+  }
+});
+
+test("the logo opt-out is ordered AFTER the generic media un-invert", () => {
+  // Both rules match the same <img> and both are !important, so the cascade is
+  // decided by specificity/order. If the generic `html.x img` rule were emitted
+  // last it would win for any equally-specific match and the logo would go dark
+  // again — so assert the source order the fix depends on.
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("dark");
+  const css = window.document.getElementById(STYLE_ID).textContent;
+  const generic = css.indexOf("html.scaler-theme-active img,");
+  const logo = css.indexOf('img[src*="sst-logo"]');
+  assert.ok(generic !== -1, "generic media rule present");
+  assert.ok(logo !== -1, "logo opt-out present");
+  assert.ok(logo > generic, "logo opt-out comes after the generic media rule");
+});
+
 test("a natively-dark page is left native (no invert applied)", () => {
   // body has its own dark background → the whole page is already dark.
   const html = `<!DOCTYPE html><html><body style="background-color: rgb(14, 14, 18)">
