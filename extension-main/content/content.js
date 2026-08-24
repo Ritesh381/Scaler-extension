@@ -169,6 +169,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // teardown assignment-export: remove buttons
         document.querySelectorAll('.scaler-export-assignment, .scaler-export-question').forEach(el => el.remove());
       }
+    } else if (key === "live-tutor") {
+      if (value) {
+        if (typeof initLiveTutor === "function") initLiveTutor();
+      } else {
+        const tutorButton = document.getElementById("scaler-live-tutor-button"); if (tutorButton) tutorButton.remove();
+        const tutorPanel = document.getElementById("scaler-live-tutor-panel"); if (tutorPanel) tutorPanel.remove();
     } else if (key === "lecture-summary") {
       if (value) {
         if (typeof initLectureSummary === "function") initLectureSummary();
@@ -234,6 +240,9 @@ window.addEventListener("load", async () => {
     }
     if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
       initLectureSummary();
+    }
+    if (currentSettings && currentSettings["live-tutor"] && typeof initLiveTutor === "function") {
+      initLiveTutor();
     }
   }, 1700);
 
@@ -317,6 +326,9 @@ handleUrlChange = function () {
     }
     if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
       initLectureSummary();
+    }
+    if (currentSettings && currentSettings["live-tutor"] && typeof initLiveTutor === "function") {
+      initLiveTutor();
     }
   }, 1700);
 

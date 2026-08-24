@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS = {
   "lecture-info": true,
   "instructor-info": true,
   "lecture-summary": true,
+  "live-tutor": true,
   "mess-fee-filled-timestamp": null,
 
   // Contest
@@ -84,6 +85,7 @@ const TOGGLE_MAP = {
   "toggle-lecture-info": "lecture-info",
   "toggle-instructor-info": "instructor-info",
   "toggle-lecture-summary": "lecture-summary",
+  "toggle-live-tutor": "live-tutor",
   "toggle-join-session": "join-session",
   "toggle-companion-bypass": "companion-bypass",
   "toggle-companion": "companion",

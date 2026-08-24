@@ -12,6 +12,10 @@ Bypass companion-mode on campus WiFi, download lecture recordings as audio/video
 
 Adds a **"Summary"** tab on the session page that shows an AI-generated summary of the lecture — **Topics taught**, **Notes**, **Deadlines**, and **Announcements** — built from the lecture transcript.
 
+## ✨ Live AI Tutor
+
+During a live class, open **AI Tutor**, add your own transcription and LLM API keys, and select **Start listening**. Scaler++ captures short audio chunks from the active class player, sends them only to the providers you configure, and uses the rolling in-memory transcript plus an optional topic to answer questions such as “What did sir just explain?” or “Can you explain that again?”. Stopping the tutor clears the live transcript and chat context.
+
 ## ⬇️ Lecture Downloader & 📝 AI Transcription
 
 Download recorded lectures directly from the Scaler recordings page as **audio**, **video**, or **transcript** (using your own custom API key for providers like Deepgram, Groq, OpenAI, or ElevenLabs).
