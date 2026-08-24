@@ -78,7 +78,6 @@ function fetchAndSyncUser() {
         role: role ?? null,
         country: country ?? null,
         avatar_file_name: currentUser?.avatar_file_name ?? null,
-        // phone_number: currentUser?.phone_number ?? null,
 
         // from /performance-stats/
         cgr_score: perf?.cgrScore ?? null,
