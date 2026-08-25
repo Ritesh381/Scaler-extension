@@ -17,7 +17,7 @@ function initAssignmentExport() {
     }
 
     // Check if the feature is enabled in settings
-    if (typeof shouldHide === "function" && shouldHide("assignment-export")) {
+    if (typeof shouldHide === "function" && !shouldHide("assignment-export")) {
         // Remove existing button if feature is disabled
         document.querySelectorAll("[data-assignment-export-injected]").forEach(el => el.remove());
         return;

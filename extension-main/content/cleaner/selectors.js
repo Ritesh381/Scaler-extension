@@ -40,7 +40,7 @@ const DEFAULT_SETTINGS = {
   "practice-mode-start": null,
 
   companion: true,
-  "assignment-export": false,
+  "assignment-export": true,
   "subject-sort": true,
   "lecture-info": true,
   "instructor-info": true,

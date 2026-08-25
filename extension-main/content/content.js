@@ -167,7 +167,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (typeof initAssignmentExport === "function") initAssignmentExport();
       } else {
         // teardown assignment-export: remove buttons
-        document.querySelectorAll('.scaler-export-assignment, .scaler-export-question').forEach(el => el.remove());
+        document.querySelectorAll('[data-assignment-export-injected], .scaler-export-question').forEach(el => el.remove());
       }
     } else if (key === "lecture-summary") {
       if (value) {

@@ -50,7 +50,7 @@ const DEFAULT_SETTINGS = {
 
   // Assignment
   companion: true,
-  "assignment-export": false,
+  "assignment-export": true,
 
   // Spotlight Search
   "spotlight-search": true,
