@@ -817,6 +817,8 @@ async function downloadSegments(segments, audioExtractor) {
   let nextToWrite = 0;
   const buffer = new Map();
   const audioSegments = []; // one Uint8Array per TS segment
+  let fetchFailures = 0;
+  let extractedBytes = 0;
 
   function updateUI(written) {
     const pct = ((written / total) * 100).toFixed(1);
@@ -841,7 +843,43 @@ async function downloadSegments(segments, audioExtractor) {
       const idx = nextToFetch++;
       if (idx >= total) break;
       const raw = await fetchChunk(segments[idx], idx);
+
+      // fetchChunk returns null after exhausting retries. Without this line a
+      // whole lecture of 403s looks identical to a decode failure downstream.
+      if (!raw) {
+        fetchFailures++;
+        if (fetchFailures <= 5) {
+          log(`⚠ Chunk ${idx + 1} FETCH FAILED (null) — ${segments[idx]}`);
+        }
+      }
+
       const processed = raw ? audioExtractor.extract(raw) : new Uint8Array(0);
+
+      // Sample the first few chunks: fetched vs extracted byte counts plus the
+      // leading bytes identify the container (0x47 = MPEG-TS, ftyp/styp = fMP4,
+      // neither = encrypted or unknown).
+      if (idx < 3 && raw) {
+        const hex = (buf) =>
+          [...new Uint8Array(buf).slice(0, 16)]
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join(" ");
+        // ADTS frames start with sync word 0xFFF (ff f1 / ff f9). Anything else
+        // here means decodeAudioData will reject the payload.
+        const first = processed[0];
+        const second = processed[1];
+        const isAdts = first === 0xff && (second & 0xf0) === 0xf0;
+        const st = audioExtractor.audioStreamType;
+        log(
+          `Chunk ${idx + 1}: fetched ${raw.byteLength}B, extracted ${processed.byteLength}B, head=${hex(raw)}`,
+        );
+        log(
+          `Chunk ${idx + 1}: streamType=${st === null ? "none" : "0x" + st.toString(16)}, ` +
+            `audioPid=${audioExtractor.audioPid}, ADTS=${isAdts ? "yes" : "NO"}, ` +
+            `extractedHead=${hex(processed)}`,
+        );
+      }
+
+      extractedBytes += processed.byteLength;
       buffer.set(idx, processed);
       flush();
     }
@@ -852,6 +890,21 @@ async function downloadSegments(segments, audioExtractor) {
   for (let i = 0; i < CONCURRENCY; i++) workers.push(worker());
   await Promise.all(workers);
   flush();
+
+  if (fetchFailures > 5) {
+    log(`⚠ ...and ${fetchFailures - 5} more chunk fetch failures (${fetchFailures}/${total} total).`);
+  }
+  log(
+    `Audio extracted: ${(extractedBytes / 1024 / 1024).toFixed(2)} MB from ${total} segment(s)` +
+      (fetchFailures > 0 ? ` — ${fetchFailures} fetch failure(s).` : "."),
+  );
+  if (extractedBytes === 0) {
+    log(
+      fetchFailures === total
+        ? "❌ Every segment fetch failed — this is an auth/URL problem, not an audio problem."
+        : "❌ Segments downloaded but 0 audio bytes extracted — segments are not MPEG-TS AAC (see head= bytes above).",
+    );
+  }
 
   return audioSegments;
 }
@@ -941,6 +994,16 @@ startBtn.addEventListener("click", async () => {
     const segments = extractSegments(mediaText, mediaPlaylistUrl);
 
     if (segments.length === 0) throw new Error("0 segments found.");
+
+    // TSAudioExtractor only understands MPEG-TS. These two tags mean the
+    // segments are a format it will silently return 0 bytes for, so surface it
+    // here rather than letting it look like a decode failure 400 chunks later.
+    if (/#EXT-X-MAP/.test(mediaText)) {
+      log("⚠ Playlist has EXT-X-MAP — fMP4 segments, TS demuxer will not work.");
+    }
+    if (/#EXT-X-KEY:(?!METHOD=NONE)/.test(mediaText)) {
+      log("⚠ Playlist encrypted (EXT-X-KEY) — decryption not implemented.");
+    }
 
     const audioExtractor = new TSAudioExtractor();
     // Download all segments as individual buffers (not one combined blob).

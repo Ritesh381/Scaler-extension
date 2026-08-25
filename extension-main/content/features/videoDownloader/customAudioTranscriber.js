@@ -94,6 +94,15 @@ class CustomAudioTranscriber {
       // Combine this batch into one buffer
       let totalBytes = 0;
       for (const seg of batch) totalBytes += seg.byteLength;
+
+      // An empty batch is an extraction failure, not a decode failure. Halving
+      // it and retrying just produces the same error twice with a misleading
+      // message, so bail out with the real reason.
+      if (totalBytes === 0) {
+        this.log(`⚠ Batch ${b + 1}: 0 bytes of audio extracted — segments were empty, not a decode problem.`);
+        continue;
+      }
+
       const combined = new Uint8Array(totalBytes);
       let off = 0;
       for (const seg of batch) {

@@ -18,6 +18,7 @@ class TSAudioExtractor {
   constructor() {
     this.audioPid = null;
     this.pmtPid = null;
+    this.audioStreamType = null;
   }
 
   /**
@@ -234,6 +235,9 @@ class TSAudioExtractor {
         streamType === 0x81
       ) {
         this.audioPid = elementaryPid;
+        // Which stream type matched decides whether the payload is ADTS AAC
+        // (0x0F) or something decodeAudioData cannot take (0x11 LATM, 0x81 AC-3).
+        this.audioStreamType = streamType;
         return; // Found audio, stop parsing
       }
     }
