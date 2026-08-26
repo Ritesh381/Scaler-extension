@@ -101,11 +101,15 @@
         "content/features/assignmentExport/exporter.js",
         "content/features/assignmentExport/assignmentExport.js",
         "content/features/vimMode/vimMode.js",
+        "content/features/revisionTracker.js",
+        "content/features/revisionMarker.js",
+        "content/features/revisionPanel.js",
         "content/content.js"
       ],
       "css": [
         "content/features/liveStreamRecorder/liveStreamRecorder.css",
-        "content/features/vimMode/vimMode.css"
+        "content/features/vimMode/vimMode.css",
+        "content/features/revisionPanel.css"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"

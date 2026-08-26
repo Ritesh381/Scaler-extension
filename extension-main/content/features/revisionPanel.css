@@ -1,0 +1,215 @@
+/* ── Sidebar "Revise Today" panel ── */
+.scaler-revision-panel {
+  margin: 0 0 12px 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: inherit;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .07);
+}
+
+.srp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #f0f4ff;
+  border-bottom: 1px solid #e5e7eb;
+  gap: 6px;
+}
+
+.srp-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e3a8a;
+  flex: 1;
+}
+
+.srp-count {
+  font-size: 11px;
+  font-weight: 600;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 20px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.srp-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #6b7280;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.srp-toggle:hover {
+  color: #1e3a8a;
+}
+
+.srp-body {
+  padding: 6px 14px 10px;
+}
+
+/* The queue can hold an unbounded number of problems, but this panel sits ABOVE
+   Performance / Attendance / Notice Board in the dashboard sidebar. Letting it
+   grow with the queue would push all of those off-screen — so the list gets a
+   fixed viewport of ~5 rows and scrolls internally instead. Everything below
+   the panel then stays exactly where it is, whether 3 problems are due or 50.
+   `overscroll-behavior: contain` stops a scroll that reaches the end of the
+   list from chaining into the page behind it. */
+#srp-list {
+  --srp-row-h: 33px; /* 7px padding x2 + ~18px line + 1px divider */
+  --srp-visible-rows: 5;
+  max-height: calc(var(--srp-row-h) * var(--srp-visible-rows));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+#srp-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+#srp-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+#srp-list::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+.srp-body.srp-hidden {
+  display: none;
+}
+
+.srp-empty {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 4px 0;
+  padding: 4px 0;
+}
+
+.srp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-bottom: 1px solid #f3f4f6;
+  gap: 8px;
+}
+
+.srp-item:last-child {
+  border-bottom: none;
+}
+
+.srp-item-title {
+  font-size: 12px;
+  color: #1f2937;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.srp-revisit-btn {
+  flex-shrink: 0;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.srp-revisit-btn:hover {
+  background: #1d4ed8;
+}
+
+/* Dark mode — all scaler-theme-active variants */
+html.scaler-theme-active .scaler-revision-panel {
+  background: #1e1e2e;
+  border-color: #333350;
+}
+
+html.scaler-theme-active .srp-header {
+  background: #161622;
+  border-color: #333350;
+}
+
+html.scaler-theme-active .srp-title {
+  color: #93c5fd;
+}
+
+html.scaler-theme-active .srp-count {
+  background: #3b82f6;
+}
+
+html.scaler-theme-active .srp-toggle {
+  color: #94a3b8;
+}
+
+html.scaler-theme-active .srp-toggle:hover {
+  color: #e2e8f0;
+}
+
+html.scaler-theme-active .srp-item {
+  border-color: #2a2a3e;
+}
+
+html.scaler-theme-active .srp-item-title {
+  color: #cbd5e1;
+}
+
+html.scaler-theme-active .srp-empty {
+  color: #94a3b8;
+}
+
+html.scaler-theme-active .srp-revisit-btn {
+  background: #3b82f6;
+}
+
+html.scaler-theme-active .srp-revisit-btn:hover {
+  background: #2563eb;
+}
+
+@media print {
+  .scaler-revision-panel { display: none; }
+}
+
+/* ── Mark for Revision button (injected on problem pages) ── */
+.scaler-revision-marker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  padding: 3px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1.5px solid #5865f2;
+  border-radius: 6px;
+  background: transparent;
+  color: #5865f2;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.scaler-revision-marker-btn:hover:not(:disabled) {
+  background: #5865f2;
+  color: #fff;
+}
+.scaler-revision-marker-btn:disabled {
+  border-color: #10b981;
+  color: #10b981;
+  cursor: default;
+  opacity: 0.9;
+}

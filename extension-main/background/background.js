@@ -13,3 +13,4 @@ importScripts("./videoTracker.js"); // Capture media streams
 importScripts("./calendarSync.js"); // Syncing classes directly into Google Calendar
 importScripts("./messagesProxy.js"); // Proxies CORS requests for custom messages
 importScripts("./summaryProxy.js"); // Lecture summary cache + LLM proxy
+importScripts("./revisionBadge.js"); // Smart Revision badge count on extension icon

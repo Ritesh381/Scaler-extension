@@ -53,6 +53,9 @@ const DEFAULT_SETTINGS = {
   // Spotlight Search
   "spotlight-search": true,
 
+  // Smart Revision — spaced repetition for solved problems
+  "revision-tracker": true,
+  
   // Appearance — site-wide theme (default "dark"; "off" = native Scaler look)
   theme: "dark",
 };

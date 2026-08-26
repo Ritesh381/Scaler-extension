@@ -185,6 +185,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const sTab = document.getElementById('classroom-lecture-summary'); if (sTab) sTab.remove();
         const sPanel = document.getElementById('scaler-summary-panel'); if (sPanel) sPanel.remove();
       }
+    } else if (key === "revision-tracker") {
+      if (value) {
+        if (typeof initRevisionMarker === "function") initRevisionMarker();
+        if (typeof initRevisionPanel === "function") initRevisionPanel();
+      } else {
+        // Remove the dashboard panel if feature is turned off
+        const panel = document.getElementById("scaler-revision-panel-sidebar");
+        if (panel) panel.remove();
+      }
     } else {
       updateVisibilityForKey(key, value);
     }
@@ -254,6 +263,16 @@ window.addEventListener("load", async () => {
 
   // Initialize Vim mode on coding problem pages
   setTimeout(initVimMode, 1800);
+
+  // Initialize Smart Revision marker button on problem pages
+  setTimeout(() => {
+    if (currentSettings?.["revision-tracker"] && typeof initRevisionMarker === "function") {
+      initRevisionMarker();
+    }
+    if (currentSettings?.["revision-tracker"] && typeof initRevisionPanel === "function") {
+      initRevisionPanel();
+    }
+  }, 2000);
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -332,4 +351,14 @@ handleUrlChange = function () {
 
   // Re-initialize Problem Picker on dashboard
   setTimeout(initProblemPicker, 1500);
+
+  // Re-inject revision marker button on SPA navigation to problem pages
+  setTimeout(() => {
+    if (currentSettings?.["revision-tracker"] && typeof initRevisionMarker === "function") {
+      initRevisionMarker();
+    }
+    if (currentSettings?.["revision-tracker"] && typeof initRevisionPanel === "function") {
+      initRevisionPanel();
+    }
+  }, 2000);
 };
