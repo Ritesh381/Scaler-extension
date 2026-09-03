@@ -95,7 +95,7 @@ The **Midnight** theme ports the look of [refact0r/midnight-discord](https://git
 
 - **Promotional Cards** - Hide "2025 Revisited", referral banners, and promo cards.
 - **Counters & Stats** - Hide live referral counters and recording carousels.
-- **Smart Mess Fee** - Hidden by default, auto-shows only in the last 10 days of the month.
+- **Smart Mess Fee** - Hidden by default, auto-shows whenever the submission form link is live.
 - **Clean Sidebar** - Remove store links and "Refer Friends" badges.
 
 ---

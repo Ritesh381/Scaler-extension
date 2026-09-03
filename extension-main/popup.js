@@ -43,7 +43,7 @@ const DEFAULT_SETTINGS = {
   "lecture-info": true,
   "instructor-info": true,
   "lecture-summary": true,
-  "mess-fee-filled-timestamp": null,
+  "mess-fee-filled-link": null,
 
   // Contest
   "contest-leaderboard": true,

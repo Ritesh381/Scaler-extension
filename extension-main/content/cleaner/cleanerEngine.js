@@ -299,6 +299,24 @@ function addCoreCurriculumIconLink() {
 }
 
 /**
+ * Forget the stored "mess fee filled" marker and persist the change.
+ */
+function clearMessFeeFilled() {
+  if (
+    !currentSettings["mess-fee-filled-link"] &&
+    !currentSettings["mess-fee-filled-timestamp"]
+  ) {
+    return;
+  }
+
+  delete currentSettings["mess-fee-filled-link"];
+  delete currentSettings["mess-fee-filled-timestamp"]; // legacy key
+  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
+    chrome.storage.sync.set({ cleanerSettings: currentSettings });
+  }
+}
+
+/**
  * Inject Mess Fee 'Filled' checkbox dynamically
  */
 function injectMessFeeCheckbox() {
@@ -320,9 +338,10 @@ function injectMessFeeCheckbox() {
     }
 
     // ── Visibility gate ────────────────────────────────────────────────────
-    // Show the card ONLY when Scaler's own "Click here" typeform button is
-    // present in the DOM.  When the submission window is closed (or hasn't
-    // opened yet) Scaler removes that button, so we hide the whole card.
+    // The link is the ONLY signal.  Show the card whenever Scaler's own
+    // "Click here" typeform button is in the DOM, no matter what day of the
+    // month it is — Scaler keeps the form open past the usual window when
+    // students still haven't submitted.  No button → no action to take → hide.
     //
     // Because browsers break nested <a> tags out of the parent anchor, the
     // typeform link won't be found inside `card` itself — we check the
@@ -331,45 +350,38 @@ function injectMessFeeCheckbox() {
     const typeformBtn = searchRoot.querySelector('a[href*="typeform"]');
 
     if (!typeformBtn) {
-      // No actionable button → hide the card and bail out
+      // No actionable button → hide the card.  Also forget any stored "filled"
+      // marker: the window is closed, so the next link that appears belongs to
+      // a fresh cycle and must show again.
       card.classList.add(HIDDEN_CLASS);
+      clearMessFeeFilled();
       return;
     }
 
     // Button is present → card should be visible unless the user has already
-    // manually marked it as filled via our checkbox.
-    const filledTimestamp = currentSettings["mess-fee-filled-timestamp"];
-    let isFilled = false;
+    // manually marked *this* form as filled via our checkbox.  The marker is
+    // the form URL, not a date, so a form that stays open longer than usual
+    // keeps behaving correctly and a new form re-shows the card.
+    const formLink = typeformBtn.href;
+    const filledLink = currentSettings["mess-fee-filled-link"];
+    const isFilled = Boolean(filledLink) && filledLink === formLink;
 
-    if (filledTimestamp) {
-      const daysSince =
-        (Date.now() - new Date(filledTimestamp).getTime()) /
-        (1000 * 60 * 60 * 24);
-
-      if (daysSince <= 12) {
-        isFilled = true;
-        // Keep hidden to survive React re-renders
-        card.classList.add(HIDDEN_CLASS);
-      } else {
-        // Stale — clear the timestamp so the card shows again next cycle
-        delete currentSettings["mess-fee-filled-timestamp"];
-        if (
-          typeof chrome !== "undefined" &&
-          chrome.storage &&
-          chrome.storage.sync
-        ) {
-          chrome.storage.sync.set({ cleanerSettings: currentSettings });
-        }
-      }
-    }
-
-    // Make sure the card is visible if there is a typeform button and it's not filled
-    if (!isFilled) {
+    if (isFilled) {
+      // Keep hidden to survive React re-renders
+      card.classList.add(HIDDEN_CLASS);
+    } else {
       card.classList.remove(HIDDEN_CLASS);
+      // Marker belongs to an older form → drop it
+      if (filledLink) clearMessFeeFilled();
     }
 
     // ── Checkbox injection ─────────────────────────────────────────────────
-    if (card.hasAttribute("data-mess-fee-injected")) return;
+    if (card.hasAttribute("data-mess-fee-injected")) {
+      // Already injected — keep its state in sync with storage
+      const existingBox = card.querySelector("#mess-fee-filled-checkbox");
+      if (existingBox) existingBox.checked = isFilled;
+      return;
+    }
     card.setAttribute("data-mess-fee-injected", "true");
 
     // Inject a "Mark as Filled" checkbox so the user can dismiss the card
@@ -408,10 +420,12 @@ function injectMessFeeCheckbox() {
 
     checkbox.addEventListener("change", async () => {
       if (checkbox.checked) {
-        currentSettings["mess-fee-filled-timestamp"] = Date.now();
+        currentSettings["mess-fee-filled-link"] = typeformBtn.href;
       } else {
-        delete currentSettings["mess-fee-filled-timestamp"];
+        delete currentSettings["mess-fee-filled-link"];
       }
+      // Legacy key from the date-window era — never read again
+      delete currentSettings["mess-fee-filled-timestamp"];
 
       if (
         typeof chrome !== "undefined" &&
