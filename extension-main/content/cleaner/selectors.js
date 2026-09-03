@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS = {
   "subject-sort": true,
   "lecture-info": true,
   "instructor-info": true,
+  "classroom-tag": true,
   "lecture-summary": true,
   "mess-fee-filled-link": null,
 

@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS = {
   "calendar-sync": true,
   "lecture-info": true,
   "instructor-info": true,
+  "classroom-tag": true,
   "lecture-summary": true,
   "mess-fee-filled-link": null,
 
@@ -83,6 +84,7 @@ const TOGGLE_MAP = {
   "toggle-practice-mode": "practice-mode",
   "toggle-lecture-info": "lecture-info",
   "toggle-instructor-info": "instructor-info",
+  "toggle-classroom-tag": "classroom-tag",
   "toggle-lecture-summary": "lecture-summary",
   "toggle-join-session": "join-session",
   "toggle-companion-bypass": "companion-bypass",
@@ -263,6 +265,7 @@ async function handleToggleChange(toggleId, settingKey) {
       "vim-mode",
       "practice-mode",
       "join-session",
+      "classroom-tag",
       "companion-bypass",
       "subject-sort",
       "live-stream-recorder",

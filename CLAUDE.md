@@ -40,7 +40,8 @@ extension-main/            the actual extension — everything shipped lives her
   manifest.json            MV3 manifest; version, permissions, content_scripts, web_accessible_resources
   popup.html/.css/.js      settings UI; DEFAULT_SETTINGS declared in popup.js
   background/              service worker: background.js + companionBypass, leetcodeLink,
-                           videoTracker, calendarSync, messagesProxy, summaryProxy
+                           videoTracker, calendarSync, messagesProxy, summaryProxy,
+                           classroomProxy
   content/
     content.js             entry point + chrome.runtime.onMessage handler (toggle routing)
     core/                  settings.js, styleInjector.js, themePreload.js, urlObserver.js

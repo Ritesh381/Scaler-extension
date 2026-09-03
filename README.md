@@ -35,6 +35,18 @@ Calendar — no manual entry needed.
 
 Replaces the "View Details" text on live class cards with a direct **"Join Session"** button.
 
+## 🚪 Classroom Tag
+
+Scaler never tells you **which room** a class is in. This adds a room tag to every dashboard class
+card — one chip reading `Room : 1A` — built from students voting on where the class actually is.
+Click it to see how many people said what, and to add your own answer.
+
+Voting opens 24 h before a class. A guess from the room's own history holds the tag until live votes
+clearly disagree: one person can never move it, two people must agree, and a voter's ballot is
+weighted by how often their past votes matched reality. Votes are tied to your Scaler account, and
+you can change yours whenever the room changes — every earlier answer is kept.
+See [docs/classroom-vote.md](docs/classroom-vote.md).
+
 ## � Subject Sort
 
 Automatically organizes your curriculum subjects into **Core** and **Other** categories for a cleaner learning experience.
@@ -129,6 +141,7 @@ extension-main/
 ├── background/
 │   ├── background.js        ← Service worker entry point (importScripts only)
 │   ├── companionBypass.js   ← Smart Companion Bypass logic
+│   ├── classroomProxy.js    ← Crowdsourced classroom tag API proxy
 │   ├── leetcodeLink.js      ← LeetCode search & verification
     ├── calendarSync.js      ← Sync classes directly into Google Calendar
 │   ├── summaryProxy.js      ← AI summary cache + LLM proxy (CSP-safe)
@@ -150,6 +163,9 @@ extension-main/
     │   │   ├── liveStreamRecorder.js ← Main logic & UI injection
     │   │   ├── recorderBridge.js     ← Page context Agora handler
     │   │   └── liveStreamRecorder.css ← Custom player styles
+    │   ├── classroomVote/     ← Crowdsourced classroom tag module
+    │   │   ├── classroomLogic.js ← Vote window, card parsing, tag copy (pure, tested)
+    │   │   └── classroomVote.js  ← Tag injection, room picker, teardown
     │   ├── lectureInfo.js / instructorInfo.js ← Session/dashboard metadata & instructor tab
     │   ├── lectureSummary.js ← AI lecture summary tab (topics/notes/deadlines/announcements)
     │   ├── themeManager.js   ← Site-wide Dark Mode & theme engine (root-filter recipes)

@@ -139,6 +139,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         document.querySelectorAll('.scaler-lecture-instructor-info, .scaler-lecture-instructor-tag').forEach(el => el.remove());
         document.querySelectorAll('[data-lecture-instructor-info-id]').forEach(el => el.removeAttribute('data-lecture-instructor-info-id'));
       }
+    } else if (key === "classroom-tag") {
+      if (value) {
+        if (typeof initClassroomVote === "function") initClassroomVote();
+      } else if (typeof teardownClassroomTags === "function") {
+        teardownClassroomTags();
+      }
     } else if (key === "instructor-info") {
       if (value) {
         if (typeof initInstructorInfo === "function") initInstructorInfo();
@@ -235,6 +241,10 @@ window.addEventListener("load", async () => {
     if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
       initLectureSummary();
     }
+    // Runs after lecture-info so the batch name is already on the card.
+    if (currentSettings && currentSettings["classroom-tag"] !== false && typeof initClassroomVote === "function") {
+      initClassroomVote();
+    }
   }, 1700);
 
   // Initialize Contest Leaderboard on contest pages
@@ -317,6 +327,9 @@ handleUrlChange = function () {
     }
     if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
       initLectureSummary();
+    }
+    if (currentSettings && currentSettings["classroom-tag"] !== false && typeof initClassroomVote === "function") {
+      initClassroomVote();
     }
   }, 1700);
 

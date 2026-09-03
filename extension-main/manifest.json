@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Scaler++",
-  "version": "1.11.1",
+  "version": "1.11.3",
   "description": "Bypass companion-mode on campus WiFi, spotlight search, download lecture recordings & declutter Scaler dashboard",
   "permissions": [
     "storage",
@@ -87,6 +87,8 @@
         "content/features/problemPicker.js",
         "content/features/usernameTracker.js",
         "content/features/lectureInfo.js",
+        "content/features/classroomVote/classroomLogic.js",
+        "content/features/classroomVote/classroomVote.js",
         "content/features/instructorInfo.js",
         "content/features/lectureSummary.js",
         "content/features/spotlightSearch.js",

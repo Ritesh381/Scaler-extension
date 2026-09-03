@@ -47,6 +47,11 @@ This document provides a technical overview of how each major feature is impleme
 **Description:** Provides a direct "Join Session" link for active classes directly on dashboard cards.
 **Implementation:** Checks the DOM for parsed active dashboard date tabs and scheduled times. If the class is live, it replaces the "View Details" `span` tag on the class card with a dynamically generated anchor tag pointing directly to the `${classHref}/session?joinSession=1` URL.
 
+## 🚪 Classroom Tag
+
+**Description:** Shows which of the seven rooms (`0C`, `1A`, `1B`, `2A`, `2B1`, `2B2`, `2C`, or `online`) a class is in, crowdsourced from students, since Scaler exposes the room nowhere.
+**Implementation:** Reads class id, timings and batch off each dashboard card and batches them into one `POST /api/classroom/states`. The backend decides the label: a prior from the last three settled sessions of the same course/slot holds it until live votes beat it, where a vote is worth 0–1.25 by the voter's past accuracy and discounted 0.6–1.0 by how far ahead of the class it was cast. Two distinct voters are always required, so one person can never move a tag. The tag renders into its own `.scaler-classroom-info` container next to `lectureInfo`'s tags (that one gets `innerHTML`-wiped on re-render), and a click opens a room picker with per-room head counts. Voting opens 24 h before the class. One row per (class, student) holding their current answer, with unlimited edits while the window is open, every superseded answer appended to `classroom_vote_history`, and recency measured from the latest change so a correction counts as fresh evidence. Counts are public; identities and the edit trail are admin-only.
+
 ## 📚 Subject Sort
 
 **Description:** Separates class subjects into "Core" and "Other" on the curriculum page.
