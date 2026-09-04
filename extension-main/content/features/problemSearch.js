@@ -11,7 +11,9 @@ let isSearchActive = false;
  * Check if current page is the problems page
  */
 function isProblemsPage() {
-  return location.pathname.includes("/academy/mentee-dashboard/problems");
+  return /\/academy\/mentee-dashboard\/class\/[^/]+\/assignment\/problems\/?$/.test(
+    location.pathname,
+  );
 }
 
 /**

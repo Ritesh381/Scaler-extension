@@ -216,6 +216,7 @@ window.addEventListener("load", async () => {
 
   // Initialize problems search if on problems page
   setTimeout(initProblemsSearch, 1500);
+  setTimeout(initProblemFilters, 1500);
 
   // Initialize LeetCode link
   setTimeout(initLeetCodeLink, 2000);
@@ -275,6 +276,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Initialize problems search if on problems page
   setTimeout(initProblemsSearch, 1000);
+  setTimeout(initProblemFilters, 1000);
 
   // Initialize Problem Picker
   setTimeout(initProblemPicker, 1200);
@@ -296,6 +298,9 @@ handleUrlChange = function () {
   // Re-initialize search if on problems page
   if (isProblemsPage()) {
     setTimeout(initProblemsSearch, 1500);
+    setTimeout(initProblemFilters, 1500);
+  } else {
+    removeProblemFilters();
   }
 
   // Handle practice mode on URL change

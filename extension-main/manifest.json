@@ -78,6 +78,7 @@
         "content/cleaner/sidebarHandler.js",
         "content/core/urlObserver.js",
         "content/features/problemSearch.js",
+        "content/features/problemFilter.js",
         "content/features/practiceMode.js",
         "content/features/joinClassButton.js",
         "content/features/subjectSort.js",
