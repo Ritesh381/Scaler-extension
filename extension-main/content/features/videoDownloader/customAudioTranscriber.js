@@ -183,6 +183,12 @@ class CustomAudioTranscriber {
         }
 
         let text = "";
+        // Whether the model actually answered — separate from whether it had
+        // anything to say. An audible chunk can still hold no speech (noise,
+        // music, a slide nobody is talking over) and Whisper answers "" for
+        // it. Inferring failure from empty text marked those runs as broken
+        // and blocked the cache save for an otherwise complete transcript.
+        let answered = false;
         const MAX_RETRIES = 3;
 
         for (let retry = 0; retry < MAX_RETRIES; retry++) {
@@ -195,6 +201,7 @@ class CustomAudioTranscriber {
               const model = this.modelName || (isGroq ? "whisper-large-v3-turbo" : "gpt-transcribe");
               text = await this._transcribeOpenAICompatible(blob, model);
             }
+            answered = true;
             break;
           } catch (err) {
             const is429 = /\b429\b/.test(err.message);
@@ -216,17 +223,20 @@ class CustomAudioTranscriber {
           }
         }
 
-        if (text) {
-          transcriptParts[i] = text.trim();
-        } else {
-          transcriptParts[i] = "";
-          hasFailures = true;
-        }
+        transcriptParts[i] = answered ? (text || "").trim() : "";
+        if (!answered) hasFailures = true;
 
         completedCount++;
         const pct = ((completedCount / totalChunks) * 100).toFixed(1);
         if (onProgress) onProgress(parseFloat(pct), completedCount, totalChunks);
-        this.log(`Chunk ${i + 1} transcribed. Progress: ${completedCount}/${totalChunks} completed (${pct}%)`);
+        // The old line said "transcribed" for every outcome, so a run that
+        // refused to save looked identical to one that succeeded.
+        const outcome = !answered
+          ? `failed after ${MAX_RETRIES} attempts`
+          : transcriptParts[i]
+            ? "transcribed"
+            : "transcribed (no speech)";
+        this.log(`Chunk ${i + 1} ${outcome}. Progress: ${completedCount}/${totalChunks} completed (${pct}%)`);
       }
     };
 

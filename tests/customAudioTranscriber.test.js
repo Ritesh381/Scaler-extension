@@ -93,3 +93,47 @@ test("transcribe(): silent chunks are skipped, audible chunks transcribed", asyn
   assert.match(result.text, /Hello everyone\./);
   assert.match(result.text, /Today we cover graphs\./);
 });
+
+// ── Empty transcription is a result, not a failure ──────────────────────
+// Whisper returns "" for a chunk that carries no speech (background noise,
+// music, a slide left on screen). That chunk is above the silence threshold,
+// so it is genuinely sent to the model and genuinely answered. Treating the
+// empty answer as a failed request made a perfectly good 9,400-word lecture
+// refuse to save itself to the cache.
+
+test("transcribe(): a chunk that legitimately transcribes to empty is not a failure", async () => {
+  const CAT = loadClass();
+  const t = makeTranscriber(CAT);
+  t._prepareWavBlobs = async () => [
+    { blob: "wav0", peak: 0.4 },
+    { blob: "wav1", peak: 0.3 }, // audible, but no speech in it
+  ];
+  t._transcribeOpenAICompatible = async (blob) =>
+    blob === "wav0" ? "Hello everyone." : "";
+
+  const result = await t.transcribe(new ArrayBuffer(8));
+
+  assert.equal(result.hasFailures, false, "an empty model answer is not a failure");
+  assert.match(result.text, /Hello everyone\./);
+});
+
+test("transcribe(): a chunk whose every attempt throws IS a failure", async () => {
+  const CAT = loadClass();
+  const t = makeTranscriber(CAT);
+  t._prepareWavBlobs = async () => [
+    { blob: "wav0", peak: 0.4 },
+    { blob: "wav1", peak: 0.3 },
+  ];
+  let attempts = 0;
+  t._transcribeOpenAICompatible = async (blob) => {
+    if (blob === "wav0") return "Hello everyone.";
+    attempts++;
+    throw new Error("HTTP 500");
+  };
+
+  const result = await t.transcribe(new ArrayBuffer(8));
+
+  assert.equal(attempts, 3, "a throwing chunk exhausts its retries");
+  assert.equal(result.hasFailures, true);
+  assert.match(result.text, /Hello everyone\./);
+});
