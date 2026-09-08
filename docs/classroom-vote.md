@@ -69,14 +69,31 @@ yesterday — but yesterday is still evidence, so it is discounted, not discarde
 
 ### The history prior
 
-First tier with at least two settled sessions and a repeat wins:
+**What predicts a room is the course batch, not the cohort.** Scaler's `super_batch_name` —
+"SST DevOps & Cloud 2028 Batch A" — is the group that walks through the same door together. The
+degree cohort from `extension_users.cohort` ("Bachelor's August 24 Intake 2 Batch 2") is wider and
+can hold several course batches sitting in different rooms at the same hour, so keying on it alone
+mixes them.
 
-1. `(batch, subject)` — the same course for this batch
-2. `(batch, weekday, slot_start)` — the same weekday and time
-3. `(batch)` — anything this batch has done, and the result is penalised by 0.5
+The course batch is read off `lectureInfo`'s first card tag and stored in the `subject` column —
+named before anyone knew what Scaler exposed, see `migrations/004`. Tiers cascade, and the first
+with at least two settled sessions and a repeat wins:
+
+| Tier | Key | Reads as |
+|---|---|---|
+| `courseSlot` | cohort + course batch + weekday + slot | "DevOps Batch A, Thursdays at 2pm" |
+| `course` | cohort + course batch | "DevOps Batch A, any hour" |
+| `slot` | cohort + weekday + slot | course unknown — the cohort's habit for that hour |
+| `batch` | cohort | weakest claim about *this* class, penalised by 0.5 |
 
 Mode of the last three sessions, ties broken by recency. `1.5` when all three agree, `1.0` when two
-of three do.
+of three do. A tier holding three different rooms is no evidence at all and falls through.
+
+The course batch is client-supplied, deliberately: every tier using it is also scoped to the
+server-derived cohort, so a made-up value can only muddle the sender's own cohort — the same blast
+radius their votes already have. Builds that predate the `courseBatch` field already send the same
+string as `batch`, so the server accepts that as the last fallback and installs in the wild start
+populating course batches as soon as the backend deploys.
 
 ### Override rule
 
@@ -170,7 +187,9 @@ is exactly when the history prior matters, so the card metadata has to travel in
 
 ## Voting rules enforced server-side
 
-- Window `[start − 24h, end]`, checked against the **server** clock. The client's times are a hint.
+- Window `[start − 7 days, end]`, checked against the **server** clock. The client's times are a
+  hint. **A class that has ended is closed to everyone, including its own voters** — the window
+  check is what makes a past answer permanent.
 - One row per `(class_id, email)` — a student's current answer. **Edits are unlimited** while the
   window is open, because changing your mind is usually honest: rooms move, and a guess made from a
   notice board deserves correcting by the person who then saw the door. Every superseded answer is
@@ -187,8 +206,10 @@ is exactly when the history prior matters, so the card metadata has to travel in
   the row is gone the previous answer is unrecoverable, so a failed audit insert refuses the
   withdrawal rather than quietly losing evidence.
 - Withdrawing twice is a no-op, not a 409 — a double click must not read as an error.
-- 30 vote writes per student per UTC day. That cap plus the two-voter threshold is what bounds
-  oscillation now that edits are unlimited — there is deliberately no per-edit cooldown.
+- **No write cap and no cooldown.** Entering a whole published week and then correcting it is the
+  intended workflow, and a budget would refuse honest work to inconvenience an abuser who is already
+  bounded by the two-voter threshold, named in `classroom_vote_history`, and scored `incorrect` when
+  the class settles.
 - `batch` is read from `extension_users`, never from the request — a client-supplied batch would let
   one student write rows into another cohort's prior grouping. The client value is a fallback only
   for users whose profile sync has not recorded a cohort.

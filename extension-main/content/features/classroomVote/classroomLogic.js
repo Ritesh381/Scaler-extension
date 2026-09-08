@@ -15,8 +15,15 @@
 /** Every votable value. Must stay in step with the backend CHECK constraint. */
 const CLASSROOM_ROOMS = ["0C", "1A", "1B", "2A", "2B1", "2B2", "2C", "online"];
 
-/** Voting opens a day before the class and closes when it ends. */
-const CLASSROOM_VOTE_WINDOW_MS = 24 * 60 * 60 * 1000;
+/**
+ * Voting opens a week before the class and closes when it ends.
+ *
+ * A week, because Scaler publishes the whole week's timetable at once: one
+ * person who knows the rooms can fill in every class in one sitting rather than
+ * the batch re-reporting each morning. Must stay in step with VOTE_WINDOW_MS on
+ * the server, which is the side that actually enforces it.
+ */
+const CLASSROOM_VOTE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * True while a class is inside its voting window.
@@ -55,8 +62,8 @@ function _atTime(date, timeStr) {
  * Everything the backend needs to place a vote, read off one class card.
  *
  * The date comes from the caller (the active date tab), not from `today`: the
- * 24 h window means tomorrow's tab is votable, so this must never be gated on
- * today the way joinClassButton is.
+ * week-long window means every tab the dashboard offers is votable, so this
+ * must never be gated on today the way joinClassButton is.
  *
  * @param {Element} card    the `a.me-cr-classroom-url` anchor
  * @param {Date} activeDate the date the dashboard tab is showing
@@ -84,10 +91,18 @@ function buildClassroomMeta(card, activeDate) {
   const titleNode =
     card.querySelector("._1w9PC_5JhjMvKbYuHOnWub p") || card.querySelector("p");
 
-  // lectureInfo puts the full batch name in the first tag's title attribute.
-  // Absent when that feature is toggled off — the server then falls back to the
-  // cohort it already has on file for this user.
-  const batchTag = card.querySelector(".scaler-lecture-instructor-tag");
+  // lectureInfo puts Scaler's full `super_batch_name` in the first tag's title
+  // attribute — "SST DevOps & Cloud 2028 Batch A". That is the COURSE BATCH:
+  // the group that actually shares a room, and the key the room prediction is
+  // built on. It is not the degree cohort, which the server reads from
+  // extension_users and which can hold several course batches in different
+  // rooms at the same hour.
+  //
+  // Absent when lecture-info is toggled off; predictions then fall back to the
+  // cohort's habits for that weekday and time.
+  const courseBatchTag = card.querySelector(".scaler-lecture-instructor-tag");
+  const courseBatch =
+    courseBatchTag && courseBatchTag.title ? courseBatchTag.title.trim() : null;
 
   return {
     classId: String(classId),
@@ -95,7 +110,9 @@ function buildClassroomMeta(card, activeDate) {
     startsAt: startsAt.toISOString(),
     endsAt: endsAt.toISOString(),
     lectureTitle: titleNode ? titleNode.textContent.trim() : null,
-    batch: batchTag && batchTag.title ? batchTag.title.trim() : null,
+    courseBatch,
+    // Legacy name for the same string; the server prefers `courseBatch`.
+    batch: courseBatch,
   };
 }
 

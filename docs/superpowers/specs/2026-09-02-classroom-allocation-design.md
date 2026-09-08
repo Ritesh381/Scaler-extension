@@ -287,8 +287,7 @@ or no `email` was supplied.
 
 The server re-derives `weekday` and `slot_start` from `startsAt`, re-validates the window,
 enforces the caps, snapshots `weight_at_vote` from `classroom_voter_stats`, and returns the same
-shape as one `GET` entry. Rejections are explicit: `window_closed`, `already_locked`, `daily_cap`,
-`bad_room`.
+shape as one `GET` entry. Rejections are explicit: `window_closed` and `bad_room`.
 
 **`batch` is not taken from the request.** A client-supplied batch would let one student poison
 another cohort's prior grouping, so the server reads `cohort`/batch for that email out of
@@ -523,3 +522,42 @@ Recorded as built, so this document does not contradict the code.
     query deliberately drops its `class_id` exclusion — filtering the caller's own class server-side
     would make every card's query unique and unshareable — and instead fetches one extra row and
     drops the self-row in JS, so a class can never become its own evidence.
+
+17. **Vote window widened from 24 hours to 7 days.** Scaler publishes the whole week's timetable at
+    once, so one person who knows the rooms can enter them for every class in a sitting instead of
+    the batch re-reporting each morning. The recency tiers are unchanged (1.0 / 0.8 / 0.6) — with
+    count-based thresholds that factor only breaks ties, so splitting the floor further would add
+    arithmetic without changing an outcome. `DAILY_WRITE_CAP` went 30 → 60 because that workflow is
+    15-20 writes before anyone corrects anything, and 30 would have refused the second half of the
+    job. Note the window is seven days, not "the next timetable": sitting down on a Wednesday to
+    fill in the following Thursday is eight days out and does not fit. A test pins that boundary.
+
+18. **Predictions are keyed on the course batch, not the degree cohort.** This was a real defect,
+    found by asking what `batch` actually contained. `batch` is server-derived from
+    `extension_users.cohort` — "Bachelor's August 24 Intake 2 Batch 2" — which is the *degree*
+    cohort and can hold several course batches sitting in different rooms at the same hour. The group
+    that shares a room is Scaler's `super_batch_name` ("SST DevOps & Cloud 2028 Batch A"), which
+    `lectureInfo` already puts on the card. Meanwhile `subject` was `NULL` on every row ever written,
+    so prior tier 1 had been dead code since the feature shipped and predictions rested entirely on
+    `(cohort, weekday, slot)`.
+    - The course batch is now stored in `subject` and the cascade is four tiers:
+      `courseSlot → course → slot → batch`.
+    - `migrations/004_classroom_column_notes.sql` records what the columns hold via
+      `COMMENT ON COLUMN`, rather than renaming a column out from under a deployed backend.
+    - The server accepts the legacy `batch` field as the course batch when `courseBatch` is absent,
+      because extension builds already in the wild send the same string under that name. Course
+      tiers therefore start warming as soon as the backend deploys, without a store update.
+    - Settled rows written before this change keep `subject = NULL` and cannot be backfilled (the
+      vote rows behind them are `NULL` too); they simply age out of the three-session window.
+
+19. **The daily write cap is gone.** It went 30 → 60 for the week-long window and is now removed
+    entirely. Entering a published week and then correcting it is the intended workflow, and any
+    budget refuses honest work to inconvenience an abuser who is already bounded by the two-voter
+    threshold, named in `classroom_vote_history`, and marked `incorrect` when the class settles.
+    `countTodaysWrites` and its two call sites went with it, so a vote is now one existence check
+    plus one write.
+
+20. **Past answers are immutable, and always were.** The requirement that a voter cannot revise a
+    previous class needed no new code: the vote window closes at `class_end` and is checked against
+    the server clock, so a finished class refuses every write with `window_closed` — its own voters
+    included. A named test now pins that behaviour so it cannot be widened by accident.

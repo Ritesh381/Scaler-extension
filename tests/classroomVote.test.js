@@ -63,16 +63,44 @@ test("all seven rooms plus online are offered", () => {
 
 // ── voting window ─────────────────────────────────────────────────────────────
 
-test("voting is open from 24 hours before the class until it ends", () => {
+test("voting is open from a week before the class until it ends", () => {
   const { window } = loadFeature(FEATURES);
   const start = Date.parse("2026-09-02T14:00:00Z");
   const end = start + 2 * HOUR;
+  const WEEK = 7 * 24 * HOUR;
 
-  assert.equal(window.isClassroomVoteOpen(start - 24 * HOUR, start, end), true);
-  assert.equal(window.isClassroomVoteOpen(start - 24 * HOUR - 1000, start, end), false);
+  assert.equal(window.isClassroomVoteOpen(start - WEEK, start, end), true);
+  assert.equal(window.isClassroomVoteOpen(start - WEEK - 1000, start, end), false);
+  assert.equal(window.isClassroomVoteOpen(start - 3 * 24 * HOUR, start, end), true);
   assert.equal(window.isClassroomVoteOpen(start - HOUR, start, end), true);
   assert.equal(window.isClassroomVoteOpen(end, start, end), true);
   assert.equal(window.isClassroomVoteOpen(end + 1000, start, end), false);
+});
+
+test("a whole Mon-Fri week is votable from the Sunday before", () => {
+  const { window } = loadFeature(FEATURES);
+  const monday = Date.parse("2026-09-07T04:00:00Z");
+  const sunday = Date.parse("2026-09-06T18:00:00Z");
+
+  for (let day = 0; day < 5; day += 1) {
+    const start = monday + day * 24 * HOUR;
+    assert.equal(
+      window.isClassroomVoteOpen(sunday, start, start + 2 * HOUR),
+      true,
+      `day ${day} should be votable`,
+    );
+  }
+});
+
+test("a class more than a week out is still not votable", () => {
+  // The window is seven days, not "the next timetable". Sitting down on a
+  // Wednesday to fill in the following Thursday is eight days ahead and does
+  // not fit — in practice the dashboard only exposes a few date tabs anyway.
+  const { window } = loadFeature(FEATURES);
+  const start = Date.parse("2026-09-10T04:00:00Z");
+  const wednesdayBefore = Date.parse("2026-09-02T18:00:00Z");
+
+  assert.equal(window.isClassroomVoteOpen(wednesdayBefore, start, start + 2 * HOUR), false);
 });
 
 // ── card metadata ─────────────────────────────────────────────────────────────
@@ -84,7 +112,9 @@ test("class metadata is read off a real dashboard card", () => {
   assert.equal(meta.classId, "575444");
   assert.equal(meta.classDate, "2026-09-02");
   assert.equal(meta.lectureTitle, "Kubernetes Pods, ReplicaSets & Deployments");
-  assert.equal(meta.batch, "SST DevOps & Cloud 2028 Batch A");
+  // The course batch is what predicts a room, so it is named for that.
+  assert.equal(meta.courseBatch, "SST DevOps & Cloud 2028 Batch A");
+  assert.equal(meta.batch, "SST DevOps & Cloud 2028 Batch A", "legacy alias kept");
   assert.equal(new Date(meta.startsAt).getHours(), 14);
   assert.equal(new Date(meta.endsAt).getHours(), 16);
 });
@@ -107,7 +137,7 @@ test("metadata survives lectureInfo being switched off", () => {
   card.querySelector(".scaler-lecture-instructor-info").remove();
   const meta = window.buildClassroomMeta(card, new Date(2026, 8, 2));
   assert.equal(meta.classId, "575444");
-  assert.equal(meta.batch, null);
+  assert.equal(meta.courseBatch, null, "no course batch without lectureInfo's tag");
 });
 
 test("a class ending past midnight lands on the next day", () => {

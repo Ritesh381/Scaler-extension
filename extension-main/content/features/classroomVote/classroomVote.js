@@ -298,7 +298,7 @@ function _openClassroomPopover(anchor, meta, state) {
     note.textContent =
       "Could not reach the vote server, so nobody's answers are loaded. Voting again in a moment usually works.";
   } else if (!state.votingOpen) {
-    note.textContent = `Voting is closed. It runs from 24 hours before the class until it ends — this one is ${_classroomWindowLabel(meta)}.`;
+    note.textContent = `Voting is closed. It runs from a week before the class until it ends — this one is ${_classroomWindowLabel(meta)}.`;
   } else {
     note.textContent =
       "Votes are tied to your Scaler account, and you can change yours whenever the room changes. Two people have to agree before a room is shown.";
@@ -356,7 +356,6 @@ function _classroomWindowLabel(meta) {
 
 const CLASSROOM_REFUSALS = {
   window_closed: "Voting is closed for this class.",
-  daily_cap: "You have hit today's vote limit.",
   bad_room: "That room is not on the list.",
   bad_times: "Could not read this class's timings.",
   email_required: "Sign in through the extension popup to vote.",

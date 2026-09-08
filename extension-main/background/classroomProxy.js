@@ -114,7 +114,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         email: message.email || "",
         // null is a withdrawal and has to reach the server as null, not "".
         room: message.room == null ? null : message.room,
-        subject: meta.subject || null,
+        // The course batch is what the room prediction is keyed on.
+        courseBatch: meta.courseBatch || meta.batch || null,
         batch: meta.batch || null,
         lectureTitle: meta.lectureTitle || null,
         classDate: meta.classDate || null,
