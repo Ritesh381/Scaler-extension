@@ -234,6 +234,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Handled here in the service worker so the save completes even
   // if the transcriptProcessor tab is closed right after the download
   // triggers (fire-and-forget from a page context would be aborted).
+  //
+  // The reply below is not decoration: an MV3 service worker only stays alive
+  // while a message port is open, so returning without sendResponse let Chrome
+  // suspend the worker mid-POST and silently drop whole transcripts. Every
+  // other backend write here (saveSummary, voteTranscriptVersion) already
+  // holds the port the same way.
   if (message.action === "saveTranscriptToCache") {
     fetch(`${BACKEND_BASE_URL}/api/transcript/save`, {
       method: "POST",
@@ -255,13 +261,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }),
     })
       .then((res) => {
-        if (!res.ok) console.warn("Scaler++: Backend rejected transcript save:", res.status);
-        else console.log("Scaler++: Transcript saved to cache for key:", message.slug);
+        if (!res.ok) {
+          console.warn("Scaler++: Backend rejected transcript save:", res.status);
+          sendResponse({ success: false, error: `HTTP ${res.status}` });
+          return;
+        }
+        console.log("Scaler++: Transcript saved to cache for key:", message.slug);
+        sendResponse({ success: true });
       })
       .catch((error) => {
         console.warn("Scaler++: Failed to save transcript to cache:", error.message);
+        sendResponse({ success: false, error: error.message });
       });
 
-    // Fire-and-forget — no sendResponse needed.
+    return true;
   }
 });

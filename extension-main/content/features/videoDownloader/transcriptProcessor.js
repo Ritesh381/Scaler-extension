@@ -67,23 +67,77 @@ async function checkTranscriptCache(key) {
  * Fire-and-forget — never throws.
  */
 function saveTranscriptToCache(key, title, text, classId, generatedBy, provider, model, countDownload) {
-  if (!key || !text) return;
-  try {
-    chrome.runtime.sendMessage({
-      action: "saveTranscriptToCache",
-      slug: key.trim(),
-      title: (title || key).trim(),
-      text: text.trim(),
-      classId: classId ? String(classId).trim() : "",
-      generatedBy: generatedBy || "",
-      provider: provider || "",
-      model: model || "",
-      countDownload: countDownload === true,
+  if (!key || !text) return Promise.resolve({ success: false, error: "Nothing to save" });
+
+  // Awaiting the worker's reply is what makes the save reliable — the reply
+  // keeps the service worker's message port open, and it tells us whether the
+  // version actually landed instead of leaving the page to claim it did.
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(
+        {
+          action: "saveTranscriptToCache",
+          slug: key.trim(),
+          title: (title || key).trim(),
+          text: text.trim(),
+          classId: classId ? String(classId).trim() : "",
+          generatedBy: generatedBy || "",
+          provider: provider || "",
+          model: model || "",
+          countDownload: countDownload === true,
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+          } else {
+            resolve(response || { success: false, error: "No response" });
+          }
+        },
+      );
+    } catch (e) {
+      resolve({ success: false, error: e.message });
+    }
+  });
+}
+
+/**
+ * Ask the backend whether this exact transcript actually landed as a version.
+ *
+ * The save reply travels over a message port that Chrome is free to close
+ * early — a suspended service worker, or a page running against a worker that
+ * still holds an older build. When that happens the POST has usually already
+ * succeeded, and warning the user that their transcript was lost is worse than
+ * useless. So a failed reply is treated as "unknown" and settled by asking the
+ * backend, matching on character count because the version id is a hash the
+ * page cannot recompute.
+ */
+async function confirmVersionSaved(key, text) {
+  const expectedChars = [...text.trim()].length;
+
+  // The save may still be in flight when the port drops, so give it a moment
+  // and look twice before calling it lost.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+
+    const response = await new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { action: "getTranscriptVersions", slug: key, email: "" },
+          (resp) => {
+            if (chrome.runtime.lastError) resolve(null);
+            else resolve(resp);
+          },
+        );
+      } catch (_) {
+        resolve(null);
+      }
     });
-    console.log("[Scaler++] Transcript save dispatched to background for key:", key);
-  } catch (e) {
-    console.warn("[Scaler++] Failed to dispatch transcript save:", e.message);
+
+    const versions = response?.success ? response.data?.versions || [] : [];
+    if (versions.some((v) => v.charCount === expectedChars)) return true;
   }
+
+  return false;
 }
 
 /**
@@ -773,38 +827,58 @@ function extractSegments(mediaText, baseUrl) {
   return segments;
 }
 
-async function fetchChunk(url, index) {
-  for (let retry = 0; retry < 3; retry++) {
-    try {
-      if (sourceTabId && !isNaN(sourceTabId)) {
-        const response = await new Promise((resolve, reject) => {
-          chrome.tabs.sendMessage(
-            sourceTabId,
-            { action: "FETCH_PROXY", url, type: "binary" },
-            (resp) => {
-              if (chrome.runtime.lastError) {
-                reject(chrome.runtime.lastError);
-              } else if (resp && resp.success) {
-                resolve(resp.data);
-              } else {
-                reject(new Error(resp?.error || "Proxy fetch failed"));
-              }
-            },
-          );
-        });
+// Reason the last chunk fetch gave up, so downloadSegments can report something
+// better than "(null)". Without it a dead source tab and a 403 look identical.
+let lastChunkFetchError = null;
 
-        const uint8 = new Uint8Array(response);
-        return uint8.buffer;
-      } else {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.arrayBuffer();
+function proxyFetchChunk(url) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(
+      sourceTabId,
+      { action: "FETCH_PROXY", url, type: "binary" },
+      (resp) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (resp && resp.success) {
+          resolve(resp.data);
+        } else {
+          reject(new Error(resp?.error || "Proxy fetch failed"));
+        }
+      },
+    );
+  });
+}
+
+async function fetchChunk(url, index) {
+  let lastError = null;
+
+  for (let retry = 0; retry < 3; retry++) {
+    // The source tab proxies through the page origin, which is what the CDN's
+    // CORS headers are cut for, so try it first when we have one.
+    if (sourceTabId && !isNaN(sourceTabId)) {
+      try {
+        return new Uint8Array(await proxyFetchChunk(url)).buffer;
+      } catch (e) {
+        lastError = e;
       }
-    } catch (e) {
-      if (retry < 2)
-        await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
     }
+
+    // Fall back to fetching from this page, exactly like fetchText already
+    // does. The extension holds *.scaler.com host permission, so it can pull
+    // segments itself once the source tab is closed, navigated, or its content
+    // script is gone — previously that killed every segment of the lecture.
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.arrayBuffer();
+    } catch (e) {
+      lastError = e;
+    }
+
+    if (retry < 2) await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
   }
+
+  lastChunkFetchError = lastError;
   return null;
 }
 
@@ -849,7 +923,9 @@ async function downloadSegments(segments, audioExtractor) {
       if (!raw) {
         fetchFailures++;
         if (fetchFailures <= 5) {
-          log(`⚠ Chunk ${idx + 1} FETCH FAILED (null) — ${segments[idx]}`);
+          log(
+            `⚠ Chunk ${idx + 1} FETCH FAILED (${lastChunkFetchError?.message || "unknown error"}) — ${segments[idx]}`,
+          );
         }
       }
 
@@ -901,7 +977,7 @@ async function downloadSegments(segments, audioExtractor) {
   if (extractedBytes === 0) {
     log(
       fetchFailures === total
-        ? "❌ Every segment fetch failed — this is an auth/URL problem, not an audio problem."
+        ? `❌ Every segment fetch failed (last error: ${lastChunkFetchError?.message || "unknown"}) — a network/permission problem, not an audio problem.`
         : "❌ Segments downloaded but 0 audio bytes extracted — segments are not MPEG-TS AAC (see head= bytes above).",
     );
   }
@@ -1081,7 +1157,7 @@ startBtn.addEventListener("click", async () => {
       if (!hasFailures) {
         log("Saving transcript to cache for future use...");
         // Hand off to the service worker, which outlives this page context.
-        saveTranscriptToCache(
+        const saved = await saveTranscriptToCache(
           cacheKey,
           videoTitle,
           transcript,
@@ -1092,6 +1168,23 @@ startBtn.addEventListener("click", async () => {
           // The file was handed to the user a few lines above, so this counts.
           true,
         );
+        if (saved.success) {
+          log("Transcript saved as a new version for this lecture.");
+        } else {
+          // A lost reply is not a lost save — ask the backend which it was
+          // before telling the user anything.
+          log("Save reply did not come back — checking whether it landed...");
+          if (await confirmVersionSaved(cacheKey, transcript)) {
+            log("Transcript saved as a new version for this lecture.");
+          } else {
+            // Silence here used to mean the version simply never appeared on
+            // the versions page with nothing anywhere explaining why.
+            log(
+              `⚠ Could not save this transcript to the cache (${saved.error || "unknown error"}). ` +
+                `Your downloaded file is fine, but it will not show up under versions.`,
+            );
+          }
+        }
       } else {
         log("Skipping cache save: Some chunks failed to transcribe.");
       }
