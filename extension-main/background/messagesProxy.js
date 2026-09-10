@@ -93,6 +93,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // No return true — fire-and-forget
   }
 
+  // ── Track one-time message CTA clicks ─────────────────────
+  // The content script reports only the first interaction per injected banner.
+  if (message.action === "trackMessageClick") {
+    fetch(
+      `${BACKEND_BASE_URL}/api/messages/${encodeURIComponent(message.messageId || "")}/click`,
+      { method: "POST" },
+    ).catch(() => {
+      /* analytics must never interrupt the user's click */
+    });
+  }
+
   // ── Proxy button click to backend ────────────────────────
   // Content scripts can't make cross-origin requests to our
   // backend, so we relay them through the service worker.

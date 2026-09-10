@@ -109,3 +109,37 @@ test("initCustomMessages still fetches with a null email when no profile is cach
   assert.equal(sent[0].email, null);
   assert.deepEqual(injected, ["b"]);
 });
+
+test("a one-time link reports one click and dismisses the message", async () => {
+  const sent = [];
+  const chrome = makeChrome({
+    sendMessage: (message) => sent.push(message),
+  });
+  const { window } = loadFeature("content/features/customMessage.js", {
+    chrome,
+    html: `<!DOCTYPE html><html><body>
+      <div class="_3waiogKHpNpMjAh8o5lc2v">
+        <div class="e7ge61UPj54Me37pqU2Rd">logo</div>
+      </div>
+    </body></html>`,
+  });
+
+  window.injectCustomMessage(
+    { id: "message-1", msg: '<a href="#support">Support</a>', one_time: true },
+    {},
+  );
+  await tick(700);
+
+  const link = window.document.querySelector("#scaler-custom-msg-container a");
+  link.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  link.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].action, "trackMessageClick");
+  assert.equal(sent[0].messageId, "message-1");
+  assert.equal(
+    window.document.getElementById("scaler-custom-msg-container").style.display,
+    "none",
+  );
+  assert.equal(chrome.__local.dismissed_message_ids["message-1"], true);
+});

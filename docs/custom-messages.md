@@ -43,12 +43,14 @@ An `#scaler-custom-msg-container` existence check prevents a double inject.
 ## Interactions
 
 - **Links** — every `<a>` inside the message gets a click handler that marks the message
-  dismissed.
+  dismissed. The first click on a one-time message also increments that message's aggregate
+  click counter.
 - **Action buttons** — any `<button data-action-endpoint="…">` becomes an interactive control.
   Optional attributes: `data-action-method` (default `POST`), `data-action-payload` (JSON, parse
   errors logged), `data-action-dismiss` (dismiss after a successful call).
   The click disables the button, sends `proxyButtonClick` to the worker, which calls
-  `{BACKEND}{endpoint}` and returns the JSON; the button is re-enabled either way.
+  `{BACKEND}{endpoint}` and returns the JSON; the button is re-enabled either way. A one-time
+  message reports its first action-button click through `POST /api/messages/:id/click` too.
 - **Dismissal** — `markAsDismissed()` hides the container and, for a `one_time` message, records
   `dismissed_message_ids[id] = true` in `chrome.storage.local` so it never returns.
 

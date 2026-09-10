@@ -92,6 +92,16 @@ function injectCustomMessage(msgData, dismissedIds) {
       logoArea.parentNode.insertBefore(msgContainer, logoArea.nextSibling);
 
       // Handle interactions
+      let clickReported = false;
+      const reportOneTimeClick = () => {
+        if (!msgData.one_time || clickReported) return;
+        clickReported = true;
+        chrome.runtime.sendMessage({
+          action: "trackMessageClick",
+          messageId: msgData.id,
+        });
+      };
+
       const markAsDismissed = () => {
         msgContainer.style.display = "none";
         if (msgData.one_time) {
@@ -103,7 +113,10 @@ function injectCustomMessage(msgData, dismissedIds) {
       // If user clicks a link inside the injected HTML, mark as interactive
       const links = msgContainer.querySelectorAll("a");
       links.forEach((link) => {
-        link.addEventListener("click", markAsDismissed);
+        link.addEventListener("click", () => {
+          reportOneTimeClick();
+          markAsDismissed();
+        });
       });
 
       // ── Wire up interactive buttons ────────────────────
@@ -115,6 +128,8 @@ function injectCustomMessage(msgData, dismissedIds) {
 
       actionButtons.forEach((btn) => {
         btn.addEventListener("click", () => {
+          reportOneTimeClick();
+
           const endpoint = btn.dataset.actionEndpoint;
           const method = btn.dataset.actionMethod || "POST";
           let body = null;
