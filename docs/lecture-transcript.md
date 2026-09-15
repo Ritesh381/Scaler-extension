@@ -112,6 +112,10 @@ the cache or downloads anything itself; the versions page owns all of it.
 `transcriptProcessor.html`, carrying the stream URL forward since that page needs it to
 pull audio.
 
+The versions page also includes a compact support panel beside the transcript list. It keeps the
+UPI QR visible on desktop, moves below the transcript content on smaller screens, and links to the
+public donation page for supporters who want to add their name or a message.
+
 `versionId` is `sha256(lectureId + NUL + trimmed text)`. Scoping the hash to the lecture
 matters: the legacy data stores the same lecture under several slug formats (a UUID slug,
 a kebab slug, the raw title), and hashing text alone collapsed those into one document

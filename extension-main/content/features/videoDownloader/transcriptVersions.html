@@ -46,8 +46,19 @@
 
     .page {
       width: 100%;
-      max-width: 880px;
+      max-width: 1180px;
       margin: 0 auto;
+    }
+
+    .page-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 880px) 268px;
+      gap: 32px;
+      align-items: start;
+    }
+
+    .transcript-content {
+      min-width: 0;
     }
 
     /* ── Header ─────────────────────────────────────────────── */
@@ -114,6 +125,98 @@
     .why b {
       color: var(--text-dim);
       font-weight: 600;
+    }
+
+    /* ── Support ────────────────────────────────────────────── */
+
+    .support-panel {
+      position: sticky;
+      top: 40px;
+      padding: 20px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+
+    .support-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #7fb0f7;
+      margin-bottom: 8px;
+    }
+
+    .support-panel h2 {
+      font-size: 17px;
+      line-height: 1.35;
+      margin-bottom: 9px;
+    }
+
+    .support-copy,
+    .support-note {
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--text-faint);
+    }
+
+    .support-copy {
+      margin-bottom: 18px;
+    }
+
+    .qr-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    .support-payment {
+      margin-top: 18px;
+    }
+
+    .qr-code {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: contain;
+      background: #fff;
+      border-radius: 8px;
+    }
+
+    .upi-id {
+      margin-top: 9px;
+      color: var(--text-dim);
+      font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+      font-size: 11.5px;
+      font-weight: 700;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+
+    .support-note {
+      margin: 17px 0 10px;
+    }
+
+    .donate-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #7fb0f7;
+      font-size: 12.5px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .donate-link:hover {
+      color: var(--text);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .donate-link svg {
+      flex-shrink: 0;
     }
 
     /* ── Buttons ────────────────────────────────────────────── */
@@ -518,9 +621,47 @@
       white-space: nowrap;
     }
 
+    @media (max-width: 980px) {
+      .page-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .support-panel {
+        position: static;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 180px;
+        column-gap: 22px;
+        align-items: center;
+      }
+
+      .support-details {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      .support-payment {
+        grid-column: 2;
+        grid-row: 1;
+        margin-top: 0;
+      }
+    }
+
     @media (max-width: 620px) {
       body {
         padding: 28px 16px 64px;
+      }
+
+      .page-grid {
+        gap: 24px;
+      }
+
+      .support-panel {
+        display: block;
+      }
+
+      .support-payment {
+        max-width: 220px;
+        margin: 18px auto 0;
       }
 
       .v-main {
@@ -539,65 +680,101 @@
   <div class="page">
     <div class="brand">Scaler<span>++</span></div>
 
-    <h1 id="lecture-name" class="lecture-name placeholder">Loading lecture…</h1>
+    <div class="page-grid">
+      <main class="transcript-content">
+        <h1 id="lecture-name" class="lecture-name placeholder">Loading lecture…</h1>
 
-    <div class="title-row">
-      <h2>Transcripts</h2>
-      <span id="count-pill" class="count-pill" hidden></span>
-    </div>
+        <div class="title-row">
+          <h2>Transcripts</h2>
+          <span id="count-pill" class="count-pill" hidden></span>
+        </div>
 
-    <p class="why">
-      Transcript quality swings wildly between models — some come back in the wrong
-      language or loop the same sentence for pages. <b>Your vote decides which one
-      everybody gets by default</b>, so one click spares the next person from
-      downloading a bad transcript.
-    </p>
+        <p class="why">
+          Transcript quality swings wildly between models — some come back in the wrong
+          language or loop the same sentence for pages. <b>Your vote decides which one
+            everybody gets by default</b>, so one click spares the next person from
+          downloading a bad transcript.
+        </p>
 
-    <button id="create-btn" class="btn-primary">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="12" y1="5" x2="12" y2="19"></line>
-        <line x1="5" y1="12" x2="19" y2="12"></line>
-      </svg>
-      Create a version
-    </button>
+        <button id="create-btn" class="btn-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Create a version
+        </button>
 
-    <div id="loading" class="list">
-      <div class="skeleton"></div>
-      <div class="skeleton"></div>
-    </div>
+        <div id="loading" class="list">
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+        </div>
 
-    <div id="list" class="list" hidden></div>
+        <div id="list" class="list" hidden></div>
 
-    <div id="empty" class="state" hidden>
-      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-        <polyline points="14 2 14 8 20 8"></polyline>
-        <line x1="9" y1="15" x2="15" y2="15"></line>
-      </svg>
-      <h3>No transcripts yet</h3>
-      <p>Nobody has transcribed this lecture. Generate the first version and it becomes the shared copy for everyone in your batch.</p>
-      <button id="empty-create-btn" class="btn-primary">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
-        Create the first version
-      </button>
-    </div>
+        <div id="empty" class="state" hidden>
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+          <h3>No transcripts yet</h3>
+          <p>Nobody has transcribed this lecture. Generate the first version and it becomes the shared copy for
+            everyone in your batch.</p>
+          <button id="empty-create-btn" class="btn-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Create the first version
+          </button>
+        </div>
 
-    <div id="error" class="state error" hidden>
-      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"></circle>
-        <line x1="12" y1="8" x2="12" y2="12"></line>
-        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-      </svg>
-      <h3>Could not load transcripts</h3>
-      <p id="error-detail">Something went wrong reaching the transcript cache.</p>
-      <button id="retry-btn" class="btn-ghost">Try again</button>
+        <div id="error" class="state error" hidden>
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <h3>Could not load transcripts</h3>
+          <p id="error-detail">Something went wrong reaching the transcript cache.</p>
+          <button id="retry-btn" class="btn-ghost">Try again</button>
+        </div>
+
+      </main>
+
+      <aside class="support-panel" aria-labelledby="support-title">
+        <div class="support-details">
+          <div class="support-label">Support Scaler++</div>
+          <h2 id="support-title">Help keep cached transcripts online</h2>
+          <p class="support-copy">
+            Shared transcripts save the next student time and avoid generating the same lecture again. I need your help covering the infrastructure that stores and serves them.
+          </p>
+          <p class="support-note">
+            After contributing, visit the donation page to add your name or leave a message.
+          </p>
+          <a class="donate-link" href="https://scalerfrontend.vercel.app/donate" target="_blank"
+            rel="noopener noreferrer">
+            Open donation page
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M15 3h6v6"></path>
+              <path d="M10 14 21 3"></path>
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            </svg>
+          </a>
+        </div>
+
+        <div class="support-payment">
+          <div class="qr-label">Scan using any UPI app</div>
+          <img class="qr-code" src="../../../icons/donate-upi-qr.png"
+            alt="UPI QR code for supporting Scaler++" />
+          <div class="upi-id">7218548912@sbi</div>
+        </div>
+      </aside>
     </div>
   </div>
 
