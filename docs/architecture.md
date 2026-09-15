@@ -94,7 +94,7 @@ Content script → service worker (`chrome.runtime.sendMessage`), by action/type
 |---|---|---|
 | `searchLeetCodeProblem` | `background/leetcodeLink.js` | LeetCode match with confidence scoring |
 | `M3U8_CAPTURED`, `GET_VIDEO_URL`, `INITIATE_DOWNLOAD` | `background/videoTracker.js` | stream capture + opening a processor tab |
-| `fetchCustomMessages`, `syncUserProfile`, `pingUser`, `trackDownload`, `proxyButtonClick`, `checkTranscriptCache`, `saveTranscriptToCache` | `background/messagesProxy.js` | Scaler++ backend proxy |
+| `fetchCustomMessages`, `syncUserProfile`, `trackDownload`, `proxyButtonClick`, `checkTranscriptCache`, `saveTranscriptToCache` | `background/messagesProxy.js` | Scaler++ backend proxy |
 | `checkSummaryCache`, `saveSummary`, `generateSummary` | `background/summaryProxy.js` | notes cache + user's LLM |
 | `SYNC_CALENDAR`, `CALENDAR_SYNC_TOGGLED` | `background/calendarSync.js` | Google Calendar |
 | `FETCH_PROXY` | `videoDownloader.js` (content-script listener) | CORS proxy for HLS chunks |

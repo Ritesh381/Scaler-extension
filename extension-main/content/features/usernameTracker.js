@@ -12,25 +12,23 @@ function initUsernameTracker() {
   // To force a re-sync during dev, uncomment:
   // chrome.storage.sync.remove("scaler_sync_version");
 
-  // Always fetch both version AND user so we can ping on every load
+  // Keep profile sync version-gated. The cached profile is still required by
+  // audience targeting and classroom voting, but page-load activity pings are
+  // intentionally disabled to avoid a backend request on every Scaler page.
   chrome.storage.sync.get(["scaler_sync_version", "scaler_user"], (result) => {
     if (chrome.runtime.lastError || !chrome.runtime?.id) return;
 
-    // Always ping if we have a stored email — regardless of sync version
-    if (result?.scaler_user?.email) {
-      pingUser(result.scaler_user.email);
+    // Re-sync if the cached identity is missing even when the schema version
+    // matches, otherwise user-targeted features would have no email to use.
+    if (
+      result?.scaler_sync_version === SYNC_VERSION &&
+      result?.scaler_user?.email
+    ) {
+      return;
     }
-
-    // Only skip full profile sync if version already matches
-    if (result?.scaler_sync_version === SYNC_VERSION) return;
 
     fetchAndSyncUser();
   });
-}
-
-function pingUser(email) {
-  if (!chrome.runtime?.id) return;
-  chrome.runtime.sendMessage({ action: "pingUser", email });
 }
 
 function fetchAndSyncUser() {
@@ -96,8 +94,6 @@ function fetchAndSyncUser() {
                 email: user.email,
               },
             });
-            // Also ping immediately after sync
-            pingUser(user.email);
           }
         },
       );

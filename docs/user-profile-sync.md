@@ -1,4 +1,4 @@
-# Profile Sync, Activity Ping & Download Counters
+# Profile Sync & Download Counters
 
 **Setting key:** none — runs whenever the extension is active on scaler.com
 **Code:** [content/features/usernameTracker.js](../extension-main/content/features/usernameTracker.js) ·
@@ -7,12 +7,11 @@
 
 ## What it does
 
-Three related things:
+Two related things:
 
 1. **Profile sync** — reads the logged-in student's profile from Scaler's own APIs and POSTs it to
    the Scaler++ backend once per schema version.
-2. **Activity ping** — a lightweight "last seen" ping on every page load.
-3. **Download counters** — increments a usage counter when a video / audio / transcript download
+2. **Download counters** — increments a usage counter when a video / audio / transcript download
    completes (fired from the downloader, not from this file).
 
 The cached email is also what makes [custom-messages.md](custom-messages.md) able to target an
@@ -21,14 +20,12 @@ audience and what stamps `generatedBy` on shared transcripts and AI notes.
 ## Version-gated sync
 
 ```js
-const SYNC_VERSION = 9;
+const SYNC_VERSION = 11;
 ```
 
-`initUsernameTracker()` reads `scaler_sync_version` and `scaler_user` from `chrome.storage.sync`:
-
-- if a cached email exists → `pingUser(email)` **every load**, regardless of version;
-- if `scaler_sync_version === SYNC_VERSION` → skip the full profile sync;
-- otherwise → `fetchAndSyncUser()`.
+`initUsernameTracker()` reads `scaler_sync_version` and `scaler_user` from `chrome.storage.sync`.
+It skips the full profile sync only when the version matches and a cached email exists; otherwise it
+runs `fetchAndSyncUser()`. There is no page-load activity request.
 
 Bumping `SYNC_VERSION` when new fields are added forces every existing user to re-sync on their
 next page load. That is the whole migration mechanism.
@@ -56,13 +53,7 @@ chrome.storage.sync.set({
 });
 ```
 
-…and then pings immediately. Any failure is swallowed (`.catch(() => {})`) — this must never
-disturb the page.
-
-## Ping
-
-`pingUser(email)` → worker action `pingUser` → `POST /api/users/ping` with `{ email }`.
-Fire-and-forget: the worker does not call `sendResponse` and the content script does not await it.
+Any failure is swallowed (`.catch(() => {})`) — this must never disturb the page.
 
 ## Download tracking
 
