@@ -100,7 +100,9 @@ test("renders a cached summary's sections", async () => {
   assert.match(panel.textContent, /Topics Taught/);
   assert.match(panel.textContent, /Trees 101/);
   assert.match(panel.textContent, /HW due Fri/);
-  assert.match(panel.textContent, /a@b\.com/);
+  // author is never surfaced in the UI — only the model
+  assert.doesNotMatch(panel.textContent, /a@b\.com/);
+  assert.match(panel.textContent, /Model: gpt-4o-mini/);
   // AI Settings button is hidden once notes exist
   assert.equal(panel.querySelector(".scaler-notes-gear"), null);
 
