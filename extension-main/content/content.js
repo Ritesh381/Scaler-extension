@@ -250,7 +250,8 @@ window.addEventListener("load", async () => {
   // Initialize Contest Leaderboard on contest pages
   setTimeout(initContestLeaderboard, 2000);
 
-  // Initialize custom message checking
+  // Initialize custom message checking. Currently a no-op: the feature is
+  // switched off at CUSTOM_MESSAGES_ENABLED in features/customMessage.js.
   setTimeout(initCustomMessages, 1000);
 
   // Initialize Problem Picker

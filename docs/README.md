@@ -27,7 +27,7 @@ message routing, SPA handling. Every feature doc assumes it.
 | [assignment-export.md](assignment-export.md) — export problems to Markdown/ZIP | `assignment-export` | off |
 | [vim-mode.md](vim-mode.md) — Vim keybindings in the Monaco editor | `vim-mode` | off |
 | [live-stream-recorder.md](live-stream-recorder.md) — live DVR (**force-disabled**) | `live-stream-recorder` | off, locked |
-| [custom-messages.md](custom-messages.md) — in-header announcements | — | always |
+| [custom-messages.md](custom-messages.md) — in-header announcements (**disabled**) | — | off |
 | [user-profile-sync.md](user-profile-sync.md) — profile sync, ping, download counters | — | always |
 | [popup-settings.md](popup-settings.md) — the settings UI and how to add a toggle | — | — |
 

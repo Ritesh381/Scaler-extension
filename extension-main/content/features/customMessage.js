@@ -5,9 +5,18 @@
  * usernameTracker.js) is forwarded so the backend can return audience-targeted
  * messages (specific batch / email domain / individual user). With no cached
  * email yet, the backend replies with broadcast messages only.
+ *
+ * Currently disabled — see CUSTOM_MESSAGES_ENABLED below.
  */
 
+// Kill switch. The /api/messages/active fetch fired on every Scaler page load,
+// which was the bulk of the backend's active CPU. Set to true to turn custom
+// messages back on — nothing else has to change.
+// `var` (not `const`) so the flag stays reachable on window for the tests.
+var CUSTOM_MESSAGES_ENABLED = false;
+
 async function initCustomMessages() {
+  if (!CUSTOM_MESSAGES_ENABLED) return;
   try {
     chrome.storage.sync.get(["scaler_user"], (result) => {
       if (chrome.runtime.lastError || !chrome.runtime?.id) return;

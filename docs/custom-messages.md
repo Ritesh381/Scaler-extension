@@ -1,9 +1,27 @@
 # Custom Messages (in-header announcements)
 
-**Setting key:** none — always on when the backend has something to show
+**Status:** **disabled** — `CUSTOM_MESSAGES_ENABLED = false` in `customMessage.js`
+**Setting key:** none — no popup toggle; the flag is the only switch
 **Code:** [content/features/customMessage.js](../extension-main/content/features/customMessage.js) ·
 [background/messagesProxy.js](../extension-main/background/messagesProxy.js)
 **Backend:** `https://scalerbackend.vercel.app`
+
+## Status
+
+The feature is currently **switched off in the shipped extension**. `initCustomMessages()` returns
+immediately, so no `GET /api/messages/active` is issued and no announcement is ever injected.
+
+It was disabled because that fetch fired on *every* Scaler page load — one request per tab, per
+navigation, for every user — and was the largest single contributor to the backend's active CPU
+on Vercel Fluid. Nothing else about the feature was removed.
+
+To turn it back on, set `CUSTOM_MESSAGES_ENABLED = true` at the top of
+[customMessage.js](../extension-main/content/features/customMessage.js). Everything below still
+describes the behaviour you get when you do. If it is re-enabled, the fetch should be rate-limited
+(cache the response in `chrome.storage.local` with a TTL) rather than run per page load.
+
+The backend routes are untouched and still live; the service-worker handlers in `messagesProxy.js`
+are still registered, they just never receive a `fetchCustomMessages` message.
 
 ## What it does
 
@@ -62,6 +80,8 @@ context. It is not user-generated content.
 
 ## Limits
 
+- **Disabled by default** (see Status) — nothing ships to users today.
+- No per-page caching: the fetch ran once per page load, which is why it is off.
 - No popup toggle — announcements can only be dismissed, not disabled.
 - Non-`one_time` messages reappear on the next page load until the backend deactivates them.
 - Tied to the header's hashed class names; if they change, the 10 s poll expires and nothing is

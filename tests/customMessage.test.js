@@ -53,6 +53,24 @@ test("injectCustomMessage injects the banner once the header is present", async 
   assert.equal(container.innerHTML, "<b>hi</b>");
 });
 
+test("initCustomMessages makes no backend call while the feature is disabled", () => {
+  const sent = [];
+  const chrome = makeChrome({
+    syncStore: { scaler_user: { email: "a@b.com" } },
+    sendMessage: (msg, cb) => {
+      sent.push(msg);
+      cb({ success: true, data: [] });
+    },
+  });
+  const { window } = loadFeature("content/features/customMessage.js", { chrome });
+
+  // No flag flip here — this is what actually ships.
+  assert.equal(window.CUSTOM_MESSAGES_ENABLED, false);
+  window.initCustomMessages();
+
+  assert.deepEqual(sent, []);
+});
+
 test("initCustomMessages calls processMessages with backend data", () => {
   const chrome = makeChrome({
     sendMessage: (msg, cb) => {
@@ -66,6 +84,7 @@ test("initCustomMessages calls processMessages with backend data", () => {
   const injected = [];
   window.injectCustomMessage = (msg) => injected.push(msg.id);
 
+  window.CUSTOM_MESSAGES_ENABLED = true;
   window.initCustomMessages();
   assert.deepEqual(injected, ["z"]);
 });
@@ -83,6 +102,7 @@ test("initCustomMessages forwards the cached profile email for audience targetin
   });
   const { window } = loadFeature("content/features/customMessage.js", { chrome });
 
+  window.CUSTOM_MESSAGES_ENABLED = true;
   window.initCustomMessages();
 
   assert.equal(sent.length, 1);
@@ -103,6 +123,7 @@ test("initCustomMessages still fetches with a null email when no profile is cach
   const injected = [];
   window.injectCustomMessage = (msg) => injected.push(msg.id);
 
+  window.CUSTOM_MESSAGES_ENABLED = true;
   window.initCustomMessages();
 
   assert.equal(sent.length, 1);

@@ -14,8 +14,10 @@ Two related things:
 2. **Download counters** — increments a usage counter when a video / audio / transcript download
    completes (fired from the downloader, not from this file).
 
-The cached email is also what makes [custom-messages.md](custom-messages.md) able to target an
-audience and what stamps `generatedBy` on shared transcripts and AI notes.
+The cached email is also what stamps `generatedBy` on shared transcripts and AI notes — stored
+on the backend only; no UI or download shows it. It is what
+[custom-messages.md](custom-messages.md) would use for audience targeting, though that feature is
+currently disabled.
 
 ## Version-gated sync
 

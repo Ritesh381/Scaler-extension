@@ -176,7 +176,7 @@ each tick and tear themselves down.
 | Live-stream DVR (shipped OFF) | `features/liveStreamRecorder/*` | — | [live-stream-recorder.md](live-stream-recorder.md) |
 | Vim mode | `features/vimMode/*` | — | [vim-mode.md](vim-mode.md) |
 | Assignment export | `features/assignmentExport/*` | — | [assignment-export.md](assignment-export.md) |
-| In-header announcements | `features/customMessage.js` | `messagesProxy.js` | [custom-messages.md](custom-messages.md) |
+| In-header announcements (shipped OFF) | `features/customMessage.js` | `messagesProxy.js` | [custom-messages.md](custom-messages.md) |
 | Profile sync / usage counters | `features/usernameTracker.js` | `messagesProxy.js` | [user-profile-sync.md](user-profile-sync.md) |
 | Settings UI | `popup.*` | — | [popup-settings.md](popup-settings.md) |
 
