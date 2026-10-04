@@ -42,7 +42,7 @@ const DEFAULT_SETTINGS = {
   "calendar-sync": true,
   "lecture-info": true,
   "instructor-info": true,
-  "classroom-tag": true,
+  "classroom-tag": false,
   "lecture-summary": true,
   "mess-fee-filled-link": null,
 

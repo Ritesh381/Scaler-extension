@@ -1,3 +1,5 @@
+// Kill switch: classroom tag feature paused (backend request limits). Set false to re-enable.
+const CLASSROOM_TAG_DISABLED = true;
 // ============================================
 // content.js — Entry point & message handler
 // All logic is split across:
@@ -140,7 +142,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         document.querySelectorAll('[data-lecture-instructor-info-id]').forEach(el => el.removeAttribute('data-lecture-instructor-info-id'));
       }
     } else if (key === "classroom-tag") {
-      if (value) {
+      if (value && !CLASSROOM_TAG_DISABLED) {
         if (typeof initClassroomVote === "function") initClassroomVote();
       } else if (typeof teardownClassroomTags === "function") {
         teardownClassroomTags();
@@ -242,7 +244,7 @@ window.addEventListener("load", async () => {
       initLectureSummary();
     }
     // Runs after lecture-info so the batch name is already on the card.
-    if (currentSettings && currentSettings["classroom-tag"] !== false && typeof initClassroomVote === "function") {
+    if (currentSettings && !CLASSROOM_TAG_DISABLED && currentSettings["classroom-tag"] !== false && typeof initClassroomVote === "function") {
       initClassroomVote();
     }
   }, 1700);
@@ -329,7 +331,7 @@ handleUrlChange = function () {
     if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
       initLectureSummary();
     }
-    if (currentSettings && currentSettings["classroom-tag"] !== false && typeof initClassroomVote === "function") {
+    if (currentSettings && !CLASSROOM_TAG_DISABLED && currentSettings["classroom-tag"] !== false && typeof initClassroomVote === "function") {
       initClassroomVote();
     }
   }, 1700);
