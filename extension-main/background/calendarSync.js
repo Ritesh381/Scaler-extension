@@ -241,7 +241,11 @@ async function _getChromeToken(isInteractive) {
  * Interactive only — the token is not cached and expires in ~1 h.
  */
 async function _getWebToken() {
-  const redirectUrl = chrome.identity.getRedirectURL();
+  const isFirefox =
+    typeof browser !== "undefined" && browser.identity?.launchWebAuthFlow;
+
+  const identity = isFirefox ? browser.identity : chrome.identity;
+  const redirectUrl = identity.getRedirectURL();
 
   const authUrl =
     `https://accounts.google.com/o/oauth2/auth` +
@@ -250,26 +254,44 @@ async function _getWebToken() {
     `&redirect_uri=${encodeURIComponent(redirectUrl)}` +
     `&scope=${encodeURIComponent(CALENDAR_SCOPE)}`;
 
-  return new Promise((resolve, reject) => {
-    chrome.identity.launchWebAuthFlow(
-      { url: authUrl, interactive: true },
-      (responseUrl) => {
-        if (chrome.runtime.lastError || !responseUrl) {
-          reject(
-            new Error(
-              chrome.runtime.lastError?.message ??
-                "Auth cancelled. On Brave/Edge, ensure the redirect URI is " +
-                  "registered in Google Cloud Console.",
-            ),
-          );
-          return;
-        }
-        const match = responseUrl.match(/access_token=([^&]+)/);
-        if (match) resolve(match[1]);
-        else reject(new Error("No access token in redirect URL"));
-      },
-    );
-  });
+  let responseUrl;
+
+  if (isFirefox) {
+    try {
+      responseUrl = await identity.launchWebAuthFlow({
+        url: authUrl,
+        interactive: true,
+      });
+    } catch (err) {
+      throw new Error(err?.message ?? "Auth cancelled");
+    }
+  } else {
+    responseUrl = await new Promise((resolve, reject) => {
+      chrome.identity.launchWebAuthFlow(
+        { url: authUrl, interactive: true },
+        (url) => {
+          if (chrome.runtime.lastError || !url) {
+            reject(
+              new Error(
+                chrome.runtime.lastError?.message ??
+                  "Auth cancelled. On Brave/Edge, ensure the redirect URI is " +
+                    "registered in Google Cloud Console.",
+              ),
+            );
+            return;
+          }
+
+          resolve(url);
+        },
+      );
+    });
+  }
+
+  const match = responseUrl?.match(/access_token=([^&]+)/);
+
+  if (match) return match[1];
+
+  throw new Error("No access token in redirect URL");
 }
 
 /**
