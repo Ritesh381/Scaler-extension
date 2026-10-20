@@ -118,6 +118,19 @@
     return true;
   }
 
+  // monaco-vim maps <C-c> to <Esc> and swallows the keydown, so the browser
+  // never copies (ggVG + Ctrl+C just drops to normal mode). In visual mode,
+  // copy the selection to the system clipboard ourselves, then leave visual
+  // mode as Esc would. Normal/insert mode keep Ctrl+C as Esc.
+  if (window.MonacoVim) {
+    const Vim = window.MonacoVim.VimMode.Vim;
+    Vim.defineAction("scalerppCopy", (cm) => {
+      navigator.clipboard.writeText(cm.getSelection()).catch(() => {});
+      Vim.exitVisualMode(cm);
+    });
+    Vim.mapCommand("<C-c>", "action", "scalerppCopy", {}, { context: "visual" });
+  }
+
   state.messageListener = (event) => {
     if (event.source !== window) return;
     const data = event.data;
