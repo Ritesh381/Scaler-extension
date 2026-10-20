@@ -118,17 +118,24 @@
     return true;
   }
 
-  // monaco-vim maps <C-c> to <Esc> and swallows the keydown, so the browser
-  // never copies (ggVG + Ctrl+C just drops to normal mode). In visual mode,
-  // copy the selection to the system clipboard ourselves, then leave visual
-  // mode as Esc would. Normal/insert mode keep Ctrl+C as Esc.
   if (window.MonacoVim) {
     const Vim = window.MonacoVim.VimMode.Vim;
-    Vim.defineAction("scalerppCopy", (cm) => {
-      navigator.clipboard.writeText(cm.getSelection()).catch(() => {});
-      Vim.exitVisualMode(cm);
-    });
-    Vim.mapCommand("<C-c>", "action", "scalerppCopy", {}, { context: "visual" });
+    // Mirror every yank to the system clipboard (like clipboard=unnamedplus,
+    // but yank only, so x/dd don't clobber what you copied).
+    const registers = Object.getPrototypeOf(Vim.getRegisterController());
+    const pushText = registers.pushText;
+    registers.pushText = function (registerName, operator) {
+      pushText.apply(this, arguments);
+      if (operator === "yank" && registerName !== "_") {
+        navigator.clipboard
+          .writeText(this.unnamedRegister.toString())
+          .catch(() => {});
+      }
+    };
+    // monaco-vim maps <C-c> to <Esc> and swallows the keydown, so the browser
+    // never copies (ggVG + Ctrl+C just drops to normal mode). Make it a yank
+    // in visual mode; normal/insert mode keep Ctrl+C as Esc.
+    Vim.map("<C-c>", "y", "visual");
   }
 
   state.messageListener = (event) => {
