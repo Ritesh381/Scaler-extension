@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS = {
   "leetcode-link": true,
   "problem-picker": true,
   "vim-mode": false,
+  "vim-paste": false,
   "practice-mode": false,
   "practice-mode-days": 7,
   "practice-mode-start": null,
@@ -80,6 +81,7 @@ const TOGGLE_MAP = {
   "toggle-problem-search": "problem-search",
   "toggle-problem-picker": "problem-picker",
   "toggle-vim-mode": "vim-mode",
+  "toggle-vim-paste": "vim-paste",
   "toggle-leetcode-link": "leetcode-link",
   "toggle-practice-mode": "practice-mode",
   "toggle-lecture-info": "lecture-info",
@@ -263,6 +265,7 @@ async function handleToggleChange(toggleId, settingKey) {
       "problem-picker",
       "leetcode-link",
       "vim-mode",
+      "vim-paste",
       "practice-mode",
       "join-session",
       "classroom-tag",
@@ -300,6 +303,7 @@ async function handleToggleChange(toggleId, settingKey) {
 function _syncSubOptions(settingKey, visible) {
   const panelIds = {
     "practice-mode": "practice-mode-options",
+    "vim-mode": "vim-mode-options",
     "calendar-sync": "calendar-sync-options",
   };
 

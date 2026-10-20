@@ -121,6 +121,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     } else if (key === "vim-mode") {
       if (typeof setVimEnabled === "function") setVimEnabled(value);
+    } else if (key === "vim-paste") {
+      // Re-sends the enable message, which carries the new paste setting.
+      if (typeof initVimMode === "function") initVimMode();
     } else if (key === "theme") {
       // Site-wide theme switch — value is a theme id ("off", "dark", ...)
       if (typeof applyTheme === "function") applyTheme(value);

@@ -65,11 +65,16 @@ function injectVimBridge() {
 }
 
 /**
- * Post the current enabled state to the page-world bridge.
+ * Post the current enabled state (plus the clipboard-paste sub-option) to the
+ * page-world bridge.
  */
 function postVimState(enabled) {
   window.postMessage(
-    { source: "scalerpp-vim", type: enabled ? "enable" : "disable" },
+    {
+      source: "scalerpp-vim",
+      type: enabled ? "enable" : "disable",
+      paste: !!(currentSettings && currentSettings["vim-paste"]),
+    },
     "*",
   );
 }
@@ -84,7 +89,7 @@ function postVimState(enabled) {
 function requestVimEnable() {
   vimDesiredEnabled = true;
   const attempt = (remaining) => {
-    if (!vimDesiredEnabled || vimBridgeInjected || !isExtensionValid()) return;
+    if (!vimDesiredEnabled || !isExtensionValid()) return;
     if (monacoReady) {
       injectVimBridge();
       postVimState(true);
