@@ -16,6 +16,8 @@
     lineNumbersPrev: null,
     messageListener: null,
     editorListener: null,
+    focusSub: null,
+    lastClipboard: null,
   };
 
   function ensureStatusNode(editor) {
@@ -46,6 +48,7 @@
     if (!statusNode) return;
     state.vim = window.MonacoVim.initVimMode(editor, statusNode);
     state.editor = editor;
+    state.focusSub = editor.onDidFocusEditorText(syncFromClipboard);
     // Vim-style relative line numbers while attached; remember the editor's own
     // setting so detach can put it back. Monaco's "relative" is the hybrid mode
     // (absolute on the current line, relative elsewhere).
@@ -67,6 +70,10 @@
         // editor already gone
       }
       state.vim = null;
+    }
+    if (state.focusSub) {
+      state.focusSub.dispose();
+      state.focusSub = null;
     }
     if (state.editor && state.lineNumbersPrev != null) {
       try {
@@ -93,6 +100,28 @@
       window.removeEventListener("scalerpp-vim-editor", state.editorListener);
       state.editorListener = null;
     }
+  }
+
+  // Pull outside copies into vim's unnamed register so p/P paste them. Reading
+  // the clipboard is async, so we can't do it on the keystroke; instead we sync
+  // whenever the editor gains focus (click in, or return to the tab/window).
+  // Only a clipboard change since we last looked replaces the register, so
+  // ddp still pastes the deleted line.
+  // ponytail: misses a clipboard change made while the editor keeps focus
+  // (e.g. a clipboard manager); intercept p and read first if that matters.
+  function syncFromClipboard() {
+    if (!state.vim || !navigator.clipboard || !navigator.clipboard.readText) return;
+    navigator.clipboard
+      .readText()
+      .then((text) => {
+        if (!text || text === state.lastClipboard) return;
+        state.lastClipboard = text;
+        window.MonacoVim.VimMode.Vim.getRegisterController().unnamedRegister.setText(
+          text,
+          text.endsWith("\n"),
+        );
+      })
+      .catch(() => {}); // permission denied: p keeps using vim's own register
   }
 
   // Called by the document_start Escape interceptor in vimEditorCapture.js.
@@ -127,11 +156,13 @@
     registers.pushText = function (registerName, operator) {
       pushText.apply(this, arguments);
       if (operator === "yank" && registerName !== "_") {
-        navigator.clipboard
-          .writeText(this.unnamedRegister.toString())
-          .catch(() => {});
+        state.lastClipboard = this.unnamedRegister.toString();
+        navigator.clipboard.writeText(state.lastClipboard).catch(() => {});
       }
     };
+    // A copy that bypasses vim (Cmd+C, the context menu) doesn't move focus,
+    // so resync after it too.
+    document.addEventListener("copy", () => setTimeout(syncFromClipboard, 0));
     // monaco-vim maps <C-c> to <Esc> and swallows the keydown, so the browser
     // never copies (ggVG + Ctrl+C just drops to normal mode). Make it a yank
     // in visual mode; normal/insert mode keep Ctrl+C as Esc.
