@@ -17,6 +17,8 @@ This document provides a technical overview of how each major feature is impleme
 **Description:** Allows downloading recorded lectures as audio, video, or fetching an AI transcript.
 **Implementation:** A DOM observer waits for the `.vp-controls` class indicating a recorded lecture page, then injects a custom dropdown button into the header. When triggered, it communicates with the background service worker to capture the underlying M3U8 streaming link. For transcription requests, the extension downloads the audio chunks directly to the user's browser memory, and sends them directly to a user-configured third-party Speech-To-Text API provider (e.g., Deepgram, Groq, OpenAI, ElevenLabs) using their personal API key. All transcription processing occurs locally on the client without routing through any centralized extension backend, maximizing privacy and flexibility.
 
+**Multi-part lectures:** a recording split into parts streams each part separately and only loads a part when it plays, so the extension opens the lecture in an inactive, muted background tab, plays each part once to capture its stream (`playlistCapture.js`, orchestrated by `videoTracker.js`), then offers a part picker for audio/video and transcribes every part, in order, into one transcript.
+
 ## 🔴 Live Stream Recorder & ⏪ DVR
 
 **Description:** Enables recording of live classes with a DVR capability to seek back and play while the session is ongoing.

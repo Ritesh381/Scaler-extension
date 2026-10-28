@@ -78,6 +78,55 @@ Running in an extension page (not the Scaler tab) means: no page CSP, a stable c
 survives SPA navigation, and its own progress UI. `modeBadge.js` colours the page badge
 AUDIO / VIDEO / TRANSCRIPT from the `type` param.
 
+## Multi-part lectures (playlists)
+
+Some recordings are split into parts ("Part 1 · 15 minutes", "Part 2 · 99 minutes" in the player's
+**Playlist** panel). Each part is its own HLS stream, and the player only requests a part's
+`.m3u8` once that part plays — so the single URL `videoTracker.js` stores for a tab is just
+whichever part played first. Downloading "the" stream gave Part 1 only, and a transcript of a
+two-part lecture silently covered Part 1 and was cached as the whole lecture's.
+
+**Detection** — `lectureHasPlaylist()` in
+[playlistCapture.js](../extension-main/content/features/videoDownloader/playlistCapture.js): when the
+playlist panel is open, two or more listed parts; when it's closed, a player control labelled
+"playlist" (`title` / `aria-label` / tooltip attributes inside `.vp-controls`). Single-part
+lectures keep the old flow untouched.
+
+**Parsing the panel** is text-based, not class-based: the panel is found from its "Playlist"
+heading and widened until it contains a duration (`/\d+ minutes?/`); each duration's item is the
+widest element around it holding no other duration; the label is the item's other text, skipping
+icon-font ligatures (`<i>videocam</i>`) and preferring a "Part N" text.
+
+**Capture tabs** — to learn every part's stream without touching the user's own player:
+
+1. `videoDownloader.js` sends `CAPTURE_LECTURE_STREAMS { lectureUrl, lectureKey }`.
+2. `videoTracker.js` opens the lecture in an **inactive, muted** tab (`captureTabs`), at most
+   **2** at once (queued beyond that). Results are cached per lecture for **10 minutes** (the
+   URLs are signed and expire); concurrent requests for the same lecture share one capture.
+3. In that tab `playlistCapture.js` asks `IS_CAPTURE_TAB` (only lecture pages ask; only tabs the
+   worker opened get "yes") and runs `capturePlaylistStreams()`:
+   - waits for `.vp-controls` (20 s), clicks the player's own Play control (muted `play()` as a
+     fallback) and waits for its first `.m3u8` (10 s each);
+   - opens the playlist panel if needed, then clicks each part **last to first** and records
+     the playlists requested after each click (repeats included — switching back to a part
+     re-requests its playlist). Last-to-first means the part already playing on a fresh page
+     (Part 1) is clicked last, after another part, so every click switches streams;
+   - per part, `hlsChooseTopLevelStream()` ([hlsPlaylist.js](../extension-main/content/utils/hlsPlaylist.js))
+     picks the master playlist out of everything requested (deduped by path — signed URLs change
+     their query on every request);
+   - a part with no requests inherits the stream loaded before the clicks **only** when it is
+     the single part left without one and no other part already owns that stream; otherwise it
+     is reported with `url: null` rather than handed another part's video.
+4. The tab reports `CAPTURE_RESULT`; the worker closes it. A 120 s timeout, or the user closing
+   the tab, settles the job with an error and closes it too.
+
+**What the user gets** — **Audio** / **Video** turn the download menu into a part picker (each
+part with its duration, plus "All parts"); each chosen part opens its own processor tab titled
+`"<lecture> – Part N"`. **Transcript** passes every part to the versions page as
+`parts=[{label, url}]` (JSON), which hands them on to the processor (see
+[lecture-transcript.md](lecture-transcript.md#multi-part-lectures)). If any part's stream is
+missing, the transcript is refused — a partial transcript would be cached as the whole lecture's.
+
 ## The download engine (`videoProcessor.js`)
 
 1. **Save target, first.** `window.showSaveFilePicker` is requested **synchronously inside the
@@ -102,10 +151,13 @@ AUDIO / VIDEO / TRANSCRIPT from the `type` param.
 
 ### CORS proxy
 
-Chunks are served from CloudFront. If a direct `fetch` from the extension page fails, the
-processor sends `FETCH_PROXY` back to the **content script in the source tab**, which fetches from
-the scaler.com origin and returns text or a `Uint8Array`-as-`Array` (arrays survive structured
-message passing). `fetchText`/`fetchChunk` try direct first and fall back to the proxy.
+Chunks are served from CloudFront, whose CORS headers are cut for the scaler.com origin. So
+whenever a source tab is known, the processor sends `FETCH_PROXY` to the **content script in the
+source tab**, which fetches from the scaler.com origin and returns text or a
+`Uint8Array`-as-`Array` (arrays survive structured message passing). The proxy goes first:
+`fetchText` falls back to a direct fetch only when the source tab can't be reached; the video
+processor's `fetchChunk` uses the proxy alone; the transcript processor's `fetchChunk` tries the
+proxy, then a direct fetch.
 
 ## Audio extraction (`tsAudioExtractor.js`)
 
@@ -153,3 +205,8 @@ go through `content.js`):
 - Streaming-to-disk requires the File System Access API; Brave and Firefox use the higher-RAM
   memory path.
 - The processor tab must stay open for the duration of the download.
+- Multi-part lectures: the playlist markup was written from a screenshot, not a DOM sample, so
+  detection is text-based; if Scaler renames the "Playlist" heading or drops the durations,
+  multi-part detection falls back to "single part" (today's behaviour). A capture tab briefly
+  appears in the tab strip (inactive, muted) for ~5–15 s. Video/audio parts are separate files;
+  they are not concatenated.
