@@ -16,6 +16,8 @@ Adds a **"Summary"** tab on the session page that shows an AI-generated summary 
 
 Download recorded lectures directly from the Scaler recordings page as **audio**, **video**, or **transcript** (using your own custom API key for providers like Deepgram, Groq, OpenAI, or ElevenLabs).
 
+If someone has already transcribed the lecture with the model you're about to use, you're offered that transcript first — instant, and none of your API credits spent.
+
 ## 🛡️ Smart Companion Bypass
 
 Bypass Scaler's companion-mode when joining with SST's campus wifi.
@@ -158,6 +160,7 @@ extension-main/
     │   │   ├── transcriptProcessor.html ← Dedicated transcription UI
     │   │   ├── transcriptProcessor.js   ← Client-side transcript orchestrator
     │   │   ├── customAudioTranscriber.js ← Custom STT API adapters (Deepgram, Groq, etc)
+    │   │   ├── transcriptRanking.js  ← Version ranking + same-model matching (shared)
     │   │   └── modeBadge.js          ← Audio/Video mode badge
     │   ├── liveStreamRecorder/ ← Live recording & DVR module
     │   │   ├── liveStreamRecorder.js ← Main logic & UI injection

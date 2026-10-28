@@ -173,18 +173,184 @@ function offerVersionsLink() {
     "background:#18181b;border:1px solid #27272a;color:#a1a1aa;margin-top:10px;" +
     "font-size:13px;font-weight:600;padding:11px 20px;border-radius:10px;";
   link.addEventListener("click", () => {
-    const query = new URLSearchParams({
-      url: urlParams.get("url") || "",
-      type: "transcript",
-      title: videoTitle,
-      lectureSlug,
-      classId: classId || "",
-      sourceTabId: urlParams.get("sourceTabId") || "",
-    });
-    window.location.href = `transcriptVersions.html?${query.toString()}`;
+    window.location.href = versionsPageUrl();
   });
 
   startBtn.parentNode.insertBefore(link, startBtn.nextSibling);
+}
+
+/**
+ * URL of this lecture's versions page, carrying the stream URL forward so its
+ * "Create a version" button can come back here.
+ */
+function versionsPageUrl() {
+  const query = new URLSearchParams({
+    url: urlParams.get("url") || "",
+    type: "transcript",
+    title: videoTitle,
+    lectureSlug,
+    classId: classId || "",
+    sourceTabId: urlParams.get("sourceTabId") || "",
+  });
+  return `transcriptVersions.html?${query.toString()}`;
+}
+
+// ── Same-model prompt ────────────────────────────────────────────────────
+// Before a run spends API credits, check whether this lecture already has a
+// version made with the same model and offer that instead.
+
+// How long the lookup may hold up a run before it is skipped.
+const SAME_MODEL_LOOKUP_TIMEOUT_MS = 5000;
+
+/**
+ * chrome.runtime.sendMessage as a promise. Resolves null on any failure.
+ */
+function sendRuntimeMessage(message) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) resolve(null);
+        else resolve(response || null);
+      });
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * The best existing version of this lecture made with `model`, or null.
+ * Never holds up a run: a failure, or no answer within
+ * SAME_MODEL_LOOKUP_TIMEOUT_MS, resolves null and generation goes ahead.
+ */
+async function findCachedSameModel(model) {
+  if (!cacheKey || !model) return null;
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), SAME_MODEL_LOOKUP_TIMEOUT_MS);
+  });
+  try {
+    const response = await Promise.race([
+      sendRuntimeMessage({ action: "getTranscriptVersions", slug: cacheKey, email: "" }),
+      timeout,
+    ]);
+    const versions = response?.success ? response.data?.versions || [] : [];
+    return findSameModelVersions(versions, model)[0] || null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * "3 days ago" for an ISO date, or "" when it can't be parsed.
+ */
+function timeAgo(iso) {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const seconds = Math.round((then - Date.now()) / 1000);
+  const units = [
+    ["year", 31536000],
+    ["month", 2592000],
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60],
+  ];
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size) return rtf.format(Math.round(seconds / size), unit);
+  }
+  return rtf.format(seconds, "second");
+}
+
+/**
+ * Ask whether to use an existing same-model version instead of transcribing.
+ * Resolves "cached", "versions" or "generate" — or "" when dismissed with Esc,
+ * which cancels the run. Without <dialog> support it resolves "generate", so
+ * the prompt can never block a run.
+ */
+function promptUseCached(version, model) {
+  const dialog = document.getElementById("cache-dialog");
+  if (!dialog || typeof dialog.showModal !== "function") {
+    return Promise.resolve("generate");
+  }
+
+  const downloads = version.downloadCount || 0;
+  const net = (version.upvotes || 0) - (version.downvotes || 0);
+  document.getElementById("cache-dialog-model").textContent = model;
+  document.getElementById("cache-dialog-meta").textContent = [
+    version.provider,
+    timeAgo(version.createdAt),
+    `${downloads} download${downloads === 1 ? "" : "s"}`,
+    `${net > 0 ? "+" : ""}${net} vote${Math.abs(net) === 1 ? "" : "s"}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  dialog.returnValue = "";
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue), { once: true });
+    dialog.showModal();
+  });
+}
+
+/**
+ * Hand a text file to the user under the lecture's suggested name.
+ */
+function saveTextFile(text) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = getSuggestedName("txt");
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Download an existing version instead of generating one: the same steps as
+ * the versions page's Download button — text, metadata header, file, count.
+ */
+async function downloadCachedVersion(version) {
+  statusText.innerText = "Fetching the cached transcript...";
+  const response = await sendRuntimeMessage({
+    action: "getTranscriptVersion",
+    versionId: version.versionId,
+  });
+  const text = response?.success ? response.data?.text : "";
+  if (!text) {
+    throw new Error("Could not fetch the cached transcript. Try again, or transcribe it yourself.");
+  }
+
+  let finalText = text;
+  try {
+    if (classId) {
+      const header = await fetchMetadataHeader(classId, {
+        provider: version.provider,
+        model: version.model,
+      });
+      finalText = header + finalText;
+    }
+  } catch (e) {
+    console.error("[Scaler++] Error adding metadata to cached download:", e);
+  }
+  saveTextFile(finalText);
+
+  // The version counts its own download; trackDownload names the version so
+  // the backend doesn't count it a second time.
+  sendRuntimeMessage({ action: "recordVersionDownload", versionId: version.versionId });
+  trackCompletedDownload("transcript", {
+    source: "cache",
+    provider: version.provider,
+    model: version.model,
+    versionId: version.versionId,
+  });
+
+  log(`✅ Downloaded the cached ${version.model} transcript. No API credits used.`);
+  statusText.innerText = "🎉 Cached transcript downloaded!";
+  progressBar.style.width = "100%";
+  progressBar.style.background = "#10b981";
 }
 
 /**
@@ -207,6 +373,7 @@ function trackCompletedDownload(type, attribution = {}) {
           source: attribution.source || "",
           provider: attribution.provider || "",
           model: attribution.model || "",
+          versionId: attribution.versionId || "",
         });
       }
     });
@@ -1002,6 +1169,9 @@ startBtn.addEventListener("click", async () => {
   const baseUrl = baseUrlInput.value.trim();
   const apiKey = apiKeyInput.value.trim();
   const modelName = modelInput.value.trim();
+  // What will actually run — a blank model field means the provider default,
+  // and that is what gets matched against the cache and recorded with it.
+  const effectiveModel = CustomAudioTranscriber.resolveModel(baseUrl, modelName);
 
   if (!baseUrl || !apiKey) {
     alert("Please provide both Base URL and API Key.");
@@ -1041,6 +1211,29 @@ startBtn.addEventListener("click", async () => {
     baseUrlInput.disabled = true;
     modelInput.disabled = true;
     apiKeyInput.disabled = true;
+
+    // ── Same lecture, same model, already transcribed? ──────────
+    // Offer that version before spending API credits on an equivalent run.
+    statusText.innerText = "Checking for an existing transcript...";
+    const cachedVersion = await findCachedSameModel(effectiveModel);
+    if (cachedVersion) {
+      log(`Found an existing ${effectiveModel} transcript for this lecture.`);
+      const choice = await promptUseCached(cachedVersion, effectiveModel);
+      if (choice === "cached") {
+        await downloadCachedVersion(cachedVersion);
+        return;
+      }
+      if (choice === "versions") {
+        window.location.href = versionsPageUrl();
+        return;
+      }
+      if (choice !== "generate") {
+        log("Cancelled.");
+        statusText.innerText = "Ready to transcribe.";
+        return;
+      }
+      log("Transcribing anyway, as requested.");
+    }
 
     // ── STEP 1: API Key Health Check ────────────────────────────
     log("Step 1/3: Validating API key...");
@@ -1125,7 +1318,7 @@ startBtn.addEventListener("click", async () => {
       if (classId) {
         const header = await fetchMetadataHeader(classId, {
           provider: providerSelect.value,
-          model: modelName,
+          model: effectiveModel,
         });
         finalTranscript = header + finalTranscript;
       }
@@ -1133,15 +1326,7 @@ startBtn.addEventListener("click", async () => {
       console.error("[Scaler++] Error adding metadata to generated download:", e);
     }
 
-    const blob = new Blob([finalTranscript], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = getSuggestedName("txt");
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    saveTextFile(finalTranscript);
 
     const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
     const wordCount = transcript.split(/\s+/).length;
@@ -1162,7 +1347,9 @@ startBtn.addEventListener("click", async () => {
           classId,
           userEmail,
           providerSelect.value,
-          modelName,
+          // The resolved model, never a blank field: a blank can't be matched
+          // by the same-model prompt and says nothing about what ran.
+          effectiveModel,
           // The file was handed to the user a few lines above, so this counts.
           true,
         );
@@ -1193,7 +1380,7 @@ startBtn.addEventListener("click", async () => {
     trackCompletedDownload("transcript", {
       source: "generated",
       provider: providerSelect.value,
-      model: modelName,
+      model: effectiveModel,
     });
 
     // Offer a way back to the versions list. The transcript just generated is

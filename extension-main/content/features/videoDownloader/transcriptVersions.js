@@ -264,15 +264,7 @@ function render(versions) {
 
   // Highest net votes wins the badge — the same ranking the backend serves to
   // clients that ask for "the" transcript. Ties fall to downloads, then recency.
-  const topId = [...versions].sort((a, b) => {
-    const scoreA = (a.upvotes || 0) - (a.downvotes || 0);
-    const scoreB = (b.upvotes || 0) - (b.downvotes || 0);
-    if (scoreA !== scoreB) return scoreB - scoreA;
-    const dlA = a.downloadCount || 0;
-    const dlB = b.downloadCount || 0;
-    if (dlA !== dlB) return dlB - dlA;
-    return new Date(b.createdAt) - new Date(a.createdAt);
-  })[0]?.versionId;
+  const topId = rankTranscriptVersions(versions)[0]?.versionId;
 
   // Only badge a clear winner: with a single version, or when nobody has voted
   // and nobody has downloaded, "Top pick" would be meaningless.

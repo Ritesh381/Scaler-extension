@@ -137,3 +137,17 @@ test("transcribe(): a chunk whose every attempt throws IS a failure", async () =
   assert.equal(result.hasFailures, true);
   assert.match(result.text, /Hello everyone\./);
 });
+
+test("resolveModel: a typed model always wins (trimmed)", () => {
+  const CAT = loadClass();
+  assert.equal(CAT.resolveModel("https://api.groq.com/openai/v1/audio/transcriptions", " whisper-large-v3 "), "whisper-large-v3");
+});
+
+test("resolveModel: a blank field resolves to the default the request will use", () => {
+  const CAT = loadClass();
+  assert.equal(CAT.resolveModel("https://api.groq.com/openai/v1/audio/transcriptions", ""), "whisper-large-v3-turbo");
+  assert.equal(CAT.resolveModel("https://api.deepgram.com/v1/listen", ""), "nova-3");
+  assert.equal(CAT.resolveModel("https://api.elevenlabs.io/v1/speech-to-text", "  "), "scribe_v2");
+  assert.equal(CAT.resolveModel("https://api.openai.com/v1/audio/transcriptions", undefined), "gpt-transcribe");
+  assert.equal(CAT.resolveModel("https://my-custom-host/transcribe", ""), "gpt-transcribe");
+});
