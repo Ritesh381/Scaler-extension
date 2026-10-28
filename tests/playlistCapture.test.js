@@ -11,6 +11,7 @@ const assert = require("node:assert/strict");
 const { loadFeature } = require("./helpers/harness");
 
 const FILES = [
+  "content/utils/domUtils.js",
   "content/utils/hlsPlaylist.js",
   "content/features/videoDownloader/playlistCapture.js",
 ];

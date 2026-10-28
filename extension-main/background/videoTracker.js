@@ -140,6 +140,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return;
   }
 
+  // ── Bulk download: open the job's page ──────────────────────────────────
+  // The subject tab that asked becomes the job's FETCH_PROXY source: the CDN
+  // only answers the scaler.com origin.
+  if (request.type === "START_BULK_DOWNLOAD") {
+    const job = { ...request.job, sourceTabId: sender.tab?.id ?? null };
+    chrome.tabs.create({
+      url: chrome.runtime.getURL(
+        `content/features/bulkDownload/bulkDownloadPage.html#${encodeURIComponent(JSON.stringify(job))}`,
+      ),
+    });
+    sendResponse({ status: "started" });
+    return;
+  }
+
   if (request.type === "GET_VIDEO_URL") {
     sendResponse({ url: tabVideoStreams[sender.tab?.id] || null });
   } else if (request.type === "INITIATE_DOWNLOAD") {

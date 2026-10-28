@@ -1,0 +1,199 @@
+/* ============================================================
+   features/bulkDownload/bulkDownload.css
+   The "Bulk download" bar on a subject's class list, and its picker.
+   The picker is dark like the extension's other UI; its opaque backdrop is
+   flagged by the theme's dark-region scan, so a site theme leaves it dark.
+   ============================================================ */
+
+#scaler-bulk-download-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 16px;
+}
+
+#scaler-bulk-download-bar .sbd-bar-btn {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border: 1px solid #c7d7fe;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font: 600 13px/1.2 inherit;
+  cursor: pointer;
+}
+
+#scaler-bulk-download-bar .sbd-bar-btn:hover {
+  background: #dbe7ff;
+}
+
+#scaler-bulk-download-bar .sbd-bar-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+#scaler-bulk-download-bar .sbd-bar-hint {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+#scaler-bulk-download-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+#scaler-bulk-download-modal .sbd-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(640px, 100%);
+  max-height: calc(100vh - 32px);
+  padding: 20px;
+  background: #18181b;
+  color: #e4e4e7;
+  border: 1px solid #27272a;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+#scaler-bulk-download-modal .sbd-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+#scaler-bulk-download-modal h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fafafa;
+}
+
+#scaler-bulk-download-modal .sbd-subject {
+  margin-top: 2px;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+#scaler-bulk-download-modal .sbd-close {
+  background: none;
+  border: none;
+  color: #a1a1aa;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#scaler-bulk-download-modal .sbd-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+#scaler-bulk-download-modal select {
+  max-width: 200px;
+  margin-left: 4px;
+  padding: 6px 8px;
+  background: #0f0f12;
+  color: #e4e4e7;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+}
+
+#scaler-bulk-download-modal .sbd-link {
+  background: none;
+  border: none;
+  color: #60a5fa;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#scaler-bulk-download-modal .sbd-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  min-height: 120px;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+}
+
+#scaler-bulk-download-modal .sbd-list li + li {
+  border-top: 1px solid #1f1f23;
+}
+
+#scaler-bulk-download-modal .sbd-list label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#scaler-bulk-download-modal .sbd-stamp {
+  flex: none;
+  color: #a1a1aa;
+  font-variant-numeric: tabular-nums;
+}
+
+#scaler-bulk-download-modal .sbd-title {
+  flex: 1;
+  color: #e4e4e7;
+}
+
+#scaler-bulk-download-modal .sbd-note {
+  color: #f59e0b;
+  font-size: 12px;
+}
+
+#scaler-bulk-download-modal .sbd-types {
+  display: flex;
+  gap: 18px;
+  font-size: 14px;
+}
+
+#scaler-bulk-download-modal .sbd-generate {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+#scaler-bulk-download-modal .sbd-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#scaler-bulk-download-modal .sbd-count {
+  flex: 1;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+#scaler-bulk-download-modal .sbd-btn {
+  padding: 9px 18px;
+  border-radius: 10px;
+  border: 1px solid #27272a;
+  background: #18181b;
+  color: #e4e4e7;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#scaler-bulk-download-modal .sbd-primary {
+  border: none;
+  background: linear-gradient(135deg, #3484f0, #6366f1);
+  color: #fff;
+}

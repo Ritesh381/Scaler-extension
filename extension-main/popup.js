@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS = {
   "subject-sort": true,
   "live-stream-recorder": false,
   "video-downloader": true,
+  "bulk-download": true,
   "calendar-sync": true,
   "lecture-info": true,
   "instructor-info": true,
@@ -93,6 +94,7 @@ const TOGGLE_MAP = {
   "toggle-subject-sort": "subject-sort",
   "toggle-live-stream-recorder": "live-stream-recorder",
   "toggle-video-downloader": "video-downloader",
+  "toggle-bulk-download": "bulk-download",
   "toggle-calendar-sync": "calendar-sync",
   "toggle-contest-leaderboard": "contest-leaderboard",
   "toggle-spotlight-search": "spotlight-search",
@@ -270,6 +272,7 @@ async function handleToggleChange(toggleId, settingKey) {
       "subject-sort",
       "live-stream-recorder",
       "video-downloader",
+      "bulk-download",
       "contest-leaderboard",
       "spotlight-search",
     ].includes(settingKey);

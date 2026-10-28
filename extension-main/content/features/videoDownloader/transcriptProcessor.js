@@ -443,6 +443,24 @@ const cacheKey = lectureSlug || videoTitle;
 // What to transcribe: every part of a multi-part lecture (`parts`), or the
 // single stream in `url`.
 const streamParts = parseStreamParts(urlParams.get("parts"), m3u8Url);
+// Opened by the bulk download page for a lecture nobody has transcribed: start
+// on its own with the saved provider, and report the result back
+// (BULK_TRANSCRIPT_DONE) instead of downloading a file or showing alerts.
+const bulkMode = urlParams.get("mode") === "bulk";
+let bulkReported = false;
+
+function reportBulkResult(result) {
+  if (!bulkMode || bulkReported) return;
+  bulkReported = true;
+  try {
+    chrome.runtime.sendMessage(
+      { type: "BULK_TRANSCRIPT_DONE", classId, ...result },
+      () => void chrome.runtime.lastError,
+    );
+  } catch (_) {
+    /* the bulk page is gone; nothing to tell */
+  }
+}
 
 /**
  * The streams to transcribe, in order: `parts` (JSON [{label, url}] from a
@@ -679,6 +697,10 @@ function loadConfig() {
 
     applyProviderSettings(providerSelect.value);
     updateProviderLink(false);
+    // Deferred: loadConfig() runs before the Start listener is attached
+    // further down this file, and the storage callback isn't guaranteed to
+    // come after it.
+    if (bulkMode) setTimeout(() => startBtn.click(), 0);
   });
 }
 
@@ -1070,7 +1092,14 @@ startBtn.addEventListener("click", async () => {
   const modelName = modelInput.value.trim();
 
   if (!baseUrl || !apiKey) {
-    alert("Please provide both Base URL and API Key.");
+    if (bulkMode) {
+      reportBulkResult({
+        ok: false,
+        error: "No API key saved — open any lecture's transcript page, save a provider key, then retry.",
+      });
+    } else {
+      alert("Please provide both Base URL and API Key.");
+    }
     return;
   }
 
@@ -1079,11 +1108,13 @@ startBtn.addEventListener("click", async () => {
   if (providerSelect.value === "custom") {
     const v = validateCustomInputs(baseUrl, modelName);
     if (!v.ok) {
-      alert(v.reason);
+      if (bulkMode) reportBulkResult({ ok: false, error: v.reason });
+      else alert(v.reason);
       return;
     }
     if (
       v.warnSuggestedUrl &&
+      !bulkMode &&
       !confirm(
         "This Base URL doesn't look like an OpenAI-compatible transcription " +
           'endpoint (expected it to end in "/audio/transcriptions").\n\n' +
@@ -1191,15 +1222,17 @@ startBtn.addEventListener("click", async () => {
       console.error("[Scaler++] Error adding metadata to generated download:", e);
     }
 
-    const blob = new Blob([finalTranscript], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = getSuggestedName("txt");
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    if (!bulkMode) {
+      const blob = new Blob([finalTranscript], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = getSuggestedName("txt");
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
 
     const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
     const wordCount = transcript.split(/\s+/).length;
@@ -1258,12 +1291,16 @@ startBtn.addEventListener("click", async () => {
     // now one version among however many others exist, and comparing them is
     // the whole point of keeping them all.
     offerVersionsLink();
+    // `partial`: some chunks failed, so it wasn't cached — the bulk page says so.
+    reportBulkResult({ ok: true, text: finalTranscript, partial: hasFailures });
   } catch (err) {
+    reportBulkResult({ ok: false, error: err.message });
     log(`❌ Error: ${err.message}`);
     console.error(err);
     statusText.innerText = "Transcript Failed!";
     progressBar.style.background = "#ef4444";
   } finally {
+    reportBulkResult({ ok: false, error: statusText.innerText || "Transcription stopped." });
     startBtn.disabled = false;
     if (cacheBtn) cacheBtn.disabled = false;
     providerSelect.disabled = false;
@@ -1272,79 +1309,3 @@ startBtn.addEventListener("click", async () => {
     apiKeyInput.disabled = false;
   }
 });
-
-async function fetchMetadataHeader(classId, attribution = {}) {
-  if (!classId) return "";
-  
-  let courseName = "N/A";
-  let title = "N/A";
-  let startTime = "N/A";
-  let duration = "N/A";
-
-  try {
-    const [sessionRes, metaRes] = await Promise.allSettled([
-      fetch(`https://www.scaler.com/api/v2/classroom/${classId}/session`, { credentials: "include" }),
-      fetch(`https://www.scaler.com/api/v2/classroom/${classId}/meta`, { credentials: "include" })
-    ]);
-
-    if (sessionRes.status === "fulfilled" && sessionRes.value.ok) {
-      try {
-        const sessionJson = await sessionRes.value.json();
-        const batchLesson = sessionJson?.data?.attributes?.batch_lesson;
-        if (batchLesson) {
-          title = batchLesson.title || "N/A";
-          startTime = batchLesson.start_time || "N/A";
-          duration = batchLesson.duration || "N/A";
-        }
-      } catch (e) {
-        console.error("[Scaler++] Error parsing session metadata:", e);
-      }
-    }
-
-    if (metaRes.status === "fulfilled" && metaRes.value.ok) {
-      try {
-        const metaJson = await metaRes.value.json();
-        courseName = metaJson?.data?.attributes?.academy_module?.name || "N/A";
-      } catch (e) {
-        console.error("[Scaler++] Error parsing meta metadata:", e);
-      }
-    }
-  } catch (err) {
-    console.error("[Scaler++] Error fetching classroom metadata:", err);
-  }
-
-  // Format Start Time
-  let formattedStartTime = startTime;
-  if (startTime && startTime !== "N/A") {
-    try {
-      const date = new Date(startTime);
-      if (!isNaN(date.getTime())) {
-        formattedStartTime = date.toLocaleString();
-      }
-    } catch (e) {}
-  }
-
-  // Format Duration
-  let formattedDuration = duration;
-  if (typeof duration === "number") {
-    formattedDuration = `${duration} minutes`;
-  } else if (duration && duration !== "N/A") {
-    formattedDuration = `${duration} minutes`;
-  }
-
-  // Attribution: which model produced the transcript. Older cached transcripts
-  // predate these fields, so fall back to N/A rather than omitting the line —
-  // keeps the header shape stable across downloads.
-  const modelUsed = [attribution.provider, attribution.model]
-    .filter(Boolean)
-    .join(", ") || "N/A";
-
-  return `Course Name: ${courseName}\n` +
-         `Lecture Title: ${title}\n` +
-         `Start Time: ${formattedStartTime}\n` +
-         `Duration: ${formattedDuration}\n` +
-         `Model use: ${modelUsed}\n` +
-         `Downloaded via: Scaler++ Chrome Extension\n` +
-         `Developer: Ritesh prajapati\n\n` +
-         `==================================================\n\n`;
-}

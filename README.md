@@ -22,6 +22,10 @@ Bypass Scaler's companion-mode when joining with SST's campus wifi.
 
 Credits - [PHATWalrus](https://github.com/PHATWalrus)
 
+## 📦 Bulk Lecture Download
+
+On a subject's class list, **⬇ Bulk download lectures** saves transcripts, video and/or audio for any range of lectures into one folder, named in lecture order (`01 - 11 Aug - Introduction to DevOps.mp4`). Cached transcripts are free and instant; optionally, lectures nobody has transcribed yet are transcribed with your own API key, one at a time.
+
 ## 🔴 Live Stream Recorder & ⏪ DVR
 
 Rewind the live lecture.
@@ -151,11 +155,17 @@ extension-main/
     ├── core/                ← settings, styleInjector, urlObserver
     ├── cleaner/             ← selectors, cleanerEngine, modalHandler, sidebarHandler
     ├── features/
+    │   ├── bulkDownload/     ← Bulk download from a subject's class list
+    │   │   ├── bulkDownload.js       ← Class-list bar + lecture picker
+    │   │   ├── bulkDownloadPage.html/.js ← The page that downloads a whole range
+    │   │   └── bulkJob.js            ← Job parsing, file names, concurrency (pure, tested)
     │   ├── videoDownloader/  ← Lecture download & transcript module
     │   │   ├── videoDownloader.js    ← Button injection & recording detection
     │   │   ├── playlistCapture.js    ← Multi-part lectures: playlist parsing + capture tabs
     │   │   ├── videoProcessor.html   ← Download progress UI
-    │   │   ├── videoProcessor.js     ← Concurrent HLS downloader engine
+    │   │   ├── videoProcessor.js     ← Single-lecture download page
+    │   │   ├── hlsDownloadEngine.js  ← Concurrent HLS downloader engine (shared)
+    │   │   ├── transcriptHeader.js   ← Transcript metadata header (shared)
     │   │   ├── transcriptProcessor.html ← Dedicated transcription UI
     │   │   ├── transcriptProcessor.js   ← Client-side transcript orchestrator
     │   │   ├── customAudioTranscriber.js ← Custom STT API adapters (Deepgram, Groq, etc)

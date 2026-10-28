@@ -23,19 +23,6 @@ const PLAYLIST_PANEL_TIMEOUT_MS = 3000;
 const PLAYLIST_SETTLE_MS = 1500;
 
 /**
- * Text nodes under `root` whose trimmed text satisfies `test`.
- */
-function playlistTextNodes(root, test) {
-  const doc = root.ownerDocument || root;
-  const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
-  const out = [];
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    if (test(n.nodeValue.trim())) out.push(n);
-  }
-  return out;
-}
-
-/**
  * The parts listed in the player's playlist panel, in order, or [] when the
  * panel isn't rendered (closed, or a single-video lecture).
  *
@@ -47,7 +34,7 @@ function playlistTextNodes(root, test) {
  * @returns {{label: string, minutes: (number|null), target: Element}[]}
  */
 function findPlaylistParts(root = document) {
-  const headingNode = playlistTextNodes(
+  const headingNode = textNodesMatching(
     root.body || root,
     (t) => t.toLowerCase() === "playlist",
   )[0];
@@ -56,7 +43,7 @@ function findPlaylistParts(root = document) {
   let panel = headingNode.parentElement;
   let durations = [];
   for (let depth = 0; panel && depth < 8; depth++, panel = panel.parentElement) {
-    durations = playlistTextNodes(panel, (t) => t.length < 40 && PLAYLIST_DURATION_RE.test(t));
+    durations = textNodesMatching(panel, (t) => t.length < 40 && PLAYLIST_DURATION_RE.test(t));
     if (durations.length) break;
   }
   if (!panel || !durations.length) return [];
@@ -70,7 +57,7 @@ function findPlaylistParts(root = document) {
     const durationText = durationNode.nodeValue.trim();
     // Icon fonts render glyphs from ligature text (<i>videocam</i>); skip
     // those, and prefer a "Part N" text when there is one.
-    const candidates = playlistTextNodes(item, (t) => t && t !== durationText).filter(
+    const candidates = textNodesMatching(item, (t) => t && t !== durationText).filter(
       (n) =>
         n.parentElement.localName !== "i" &&
         !/icon/i.test(n.parentElement.getAttribute("class") || ""),
@@ -161,7 +148,7 @@ function playlistSleep(ms) {
  * would pause — else anything labelled "Play".
  */
 function findPlayControl(root = document) {
-  const overlay = playlistTextNodes(root.body || root, (t) => t.toLowerCase() === "play")[0];
+  const overlay = textNodesMatching(root.body || root, (t) => t.toLowerCase() === "play")[0];
   if (overlay) return overlay.parentElement;
   const toggle = root.querySelector('[data-cy="video-player-play-toggle"]');
   if (toggle && toggle.querySelector("i.icon-play")) return toggle;

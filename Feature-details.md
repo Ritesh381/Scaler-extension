@@ -19,6 +19,11 @@ This document provides a technical overview of how each major feature is impleme
 
 **Multi-part lectures:** a recording split into parts streams each part separately and only loads a part when it plays, so the extension opens the lecture in an inactive, muted background tab, plays each part once to capture its stream (`playlistCapture.js`, orchestrated by `videoTracker.js`), then offers a part picker for audio/video and transcribes every part, in order, into one transcript.
 
+## 📦 Bulk Lecture Download
+
+**Description:** From a subject's class list, download transcripts, video and/or audio for a chosen range of lectures into one folder, optionally transcribing lectures that have no transcript yet with the user's own API key.
+**Implementation:** A content script finds the class list's lecture rows by their visible "11 AUG | 03:45 PM" stamp and "Lecture" progress cell (class ids from the rows' `/class/{id}` links, falling back to the dashboard events feed), injects a bar above the list and a picker (From/To range, shift-click, types). Start sends the job to the service worker, which opens a dedicated extension page with the job in its URL hash. That page asks for one folder (`showDirectoryPicker`) and works through the lectures two at a time: transcripts come from the shared cache with the usual metadata header; missing ones are optionally generated one at a time by the regular transcript page opened in a background tab in `mode=bulk`; video/audio streams for every part come from the capture tabs used by the single-lecture downloader and are written to disk by the shared HLS engine (`hlsDownloadEngine.js`). Without the File System Access API, transcripts arrive as one ZIP and media files individually.
+
 ## 🔴 Live Stream Recorder & ⏪ DVR
 
 **Description:** Enables recording of live classes with a DVR capability to seek back and play while the session is ongoing.

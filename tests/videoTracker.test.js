@@ -134,3 +134,13 @@ test("INITIATE_DOWNLOAD without parts keeps today's URL shape", async () => {
   });
   assert.equal(new URL(t.created[0].url).searchParams.has("parts"), false);
 });
+
+test("START_BULK_DOWNLOAD opens the bulk page with the job and the asking tab as proxy", async () => {
+  const t = loadTracker();
+  const job = { subject: "DevOps", types: { transcript: true }, lectures: [{ classId: "101", index: 1 }] };
+  await t.send({ type: "START_BULK_DOWNLOAD", job }, 9);
+  const page = new URL(t.created[0].url);
+  assert.match(page.pathname, /bulkDownload\/bulkDownloadPage\.html$/);
+  assert.equal(t.created[0].active, undefined, "opens in front, like other processor pages");
+  assert.deepEqual(JSON.parse(decodeURIComponent(page.hash.slice(1))), { ...job, sourceTabId: 9 });
+});

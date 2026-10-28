@@ -94,6 +94,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           window._joinSessionObserver = null;
         }
       }
+    } else if (key === "bulk-download") {
+      if (value) initBulkDownload();
+      else teardownBulkDownload();
     } else if (key === "subject-sort") {
       if (value) {
         initSubjectSort();
@@ -252,6 +255,9 @@ window.addEventListener("load", async () => {
   // Initialize Contest Leaderboard on contest pages
   setTimeout(initContestLeaderboard, 2000);
 
+  // Bulk download bar on a subject's class list (no-op elsewhere)
+  setTimeout(initBulkDownload, 1500);
+
   // Initialize custom message checking. Currently a no-op: the feature is
   // switched off at CUSTOM_MESSAGES_ENABLED in features/customMessage.js.
   setTimeout(initCustomMessages, 1000);
@@ -340,6 +346,9 @@ handleUrlChange = function () {
   if (window.location.href.includes("/core-curriculum")) {
     setTimeout(initSubjectSort, 1500);
   }
+
+  // Bulk download bar: added on a class list, torn down everywhere else
+  setTimeout(initBulkDownload, 1500);
 
   // Re-initialize Contest Leaderboard on contest navigation
   if (isContestPage()) {

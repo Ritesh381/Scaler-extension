@@ -130,7 +130,11 @@ part with its duration, plus "All parts"); each chosen part opens its own proces
 [lecture-transcript.md](lecture-transcript.md#multi-part-lectures)). If any part's stream is
 missing, the transcript is refused — a partial transcript would be cached as the whole lecture's.
 
-## The download engine (`videoProcessor.js`)
+## The download engine (`videoProcessor.js` + `hlsDownloadEngine.js`)
+
+The engine itself lives in [hlsDownloadEngine.js](../extension-main/content/features/videoDownloader/hlsDownloadEngine.js)
+(`createHlsEngine({ sourceTabId, type, onLog, onProgress, signal })`), shared with the bulk
+download page ([bulk-download.md](bulk-download.md)); `videoProcessor.js` is the page around it.
 
 1. **Save target, first.** `window.showSaveFilePicker` is requested **synchronously inside the
    click handler**, before any `await` — the File System Access API needs transient user
@@ -158,9 +162,8 @@ Chunks are served from CloudFront, whose CORS headers are cut for the scaler.com
 whenever a source tab is known, the processor sends `FETCH_PROXY` to the **content script in the
 source tab**, which fetches from the scaler.com origin and returns text or a
 `Uint8Array`-as-`Array` (arrays survive structured message passing). The proxy goes first:
-`fetchText` falls back to a direct fetch only when the source tab can't be reached; the video
-processor's `fetchChunk` uses the proxy alone; the transcript processor's `fetchChunk` tries the
-proxy, then a direct fetch.
+`fetchText` and the engine's `fetchChunk` fall back to a direct fetch only when the source tab
+can't be reached; the transcript processor's `fetchChunk` tries the proxy, then a direct fetch.
 
 ## Audio extraction (`tsAudioExtractor.js`)
 

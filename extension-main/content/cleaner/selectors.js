@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS = {
   companion: true,
   "assignment-export": true,
   "subject-sort": true,
+  "bulk-download": true,
   "lecture-info": true,
   "instructor-info": true,
   "classroom-tag": true,
