@@ -66,3 +66,26 @@ test("re-enabling vim re-posts enable with the paste flag", () => {
     [{ source: "scalerpp-vim", type: "enable", paste: true }],
   );
 });
+
+test("leaving a problem page via SPA navigation turns vim off", () => {
+  const { window } = loadFeature("content/features/vimMode/vimMode.js", {
+    url: "https://www.scaler.com/academy/mentee-dashboard/class/1/assignment/problems/2",
+    globals: { isExtensionValid: () => true, currentSettings: { "vim-mode": true } },
+  });
+  window.chrome.runtime.getURL = (p) => p;
+  const posted = [];
+  window.postMessage = (data) => posted.push(data);
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      source: window,
+      data: { source: "scalerpp-vim-capture", type: "monaco-ready" },
+    }),
+  );
+  window.initVimMode();
+  window.history.pushState({}, "", "/academy/mentee-dashboard/todos");
+  window.initVimMode();
+  assert.deepEqual(
+    posted.filter((d) => d.source === "scalerpp-vim").map((d) => d.type),
+    ["enable", "disable"],
+  );
+});

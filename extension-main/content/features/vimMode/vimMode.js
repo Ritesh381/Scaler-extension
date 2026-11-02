@@ -88,6 +88,7 @@ function postVimState(enabled) {
  */
 function requestVimEnable() {
   vimDesiredEnabled = true;
+  cancelPendingAttempts(); // one retry chain, however often we're called
   const attempt = (remaining) => {
     if (!vimDesiredEnabled || !isExtensionValid()) return;
     if (monacoReady) {
@@ -113,7 +114,7 @@ function cancelPendingAttempts() {
 }
 
 /**
- * Enable or disable Vim mode at runtime (from the popup toggle).
+ * Enable or disable Vim mode at runtime.
  */
 function setVimEnabled(enabled) {
   vimDesiredEnabled = enabled;
@@ -137,11 +138,14 @@ function cleanupVimMode() {
 }
 
 /**
- * Initialize on load / navigation: activate only on coding pages when enabled.
+ * Bring Vim in line with the settings and the current page: on only when the
+ * setting is on and this is a coding-problem page, off otherwise (so leaving a
+ * problem via SPA navigation, or Reset in the popup, turns it off). Called on
+ * load, navigation and every popup settings change.
  */
 function initVimMode() {
   if (!isExtensionValid()) return;
-  if (!currentSettings || !currentSettings["vim-mode"]) return;
-  if (!isVimCodingPage()) return;
-  requestVimEnable();
+  setVimEnabled(
+    !!(currentSettings && currentSettings["vim-mode"]) && isVimCodingPage(),
+  );
 }
