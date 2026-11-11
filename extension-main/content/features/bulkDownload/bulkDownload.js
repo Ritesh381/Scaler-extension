@@ -54,6 +54,25 @@ function bulkCountStamps(el) {
 }
 
 /**
+ * Whether `el` already holds a whole class row: its /class/ link and its
+ * "Lecture" progress cell. Widening past that only climbs into the list.
+ */
+function isCompleteClassRow(el) {
+  return (
+    !!el.querySelector('a[href*="/class/"]') &&
+    textNodesMatching(el, (t) => /^lecture$/i.test(t)).length > 0
+  );
+}
+
+/**
+ * Whether `el` holds a "SUBJECT - 2" label: the subject header or the subject
+ * sidebar, both of which sit outside the class list.
+ */
+function holdsSubjectLabel(el) {
+  return textNodesMatching(el, (t) => /^subject\s*-\s*\d+$/i.test(t)).length > 0;
+}
+
+/**
  * Describe one class row: its stamp, title, class id (from a /class/{id}
  * link, when the row has one) and whether it's a lecture.
  */
@@ -99,12 +118,16 @@ function findLectureRows(root = document) {
       el = el.parentElement;
     }
     if (!el || !BULK_STAMP_RE.test(bulkText(el))) continue;
+    // A subject with a single class has one stamp on the whole page, so the
+    // one-stamp rule alone would climb out of the list into the page layout.
     for (
       let widen = 0;
       widen < BULK_ROW_MAX_WIDEN &&
+      !isCompleteClassRow(el) &&
       el.parentElement &&
       el.parentElement !== scope &&
       !el.parentElement.matches("main, [role='main']") &&
+      !holdsSubjectLabel(el.parentElement) &&
       bulkCountStamps(el.parentElement) === 1;
       widen++
     ) {

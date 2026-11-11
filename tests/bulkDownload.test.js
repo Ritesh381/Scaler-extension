@@ -250,6 +250,36 @@ test("real Scaler class-list rows: mixed-case stamp, CSS-free pipe span, title l
   assert.ok(window.document.getElementById("scaler-bulk-download-bar"), "bar injected above the real rows");
 });
 
+test("a subject with a single class: the bar goes above the list, not into the page layout", () => {
+  const raw = require("fs")
+    .readFileSync(require("path").join(__dirname, "fixtures/scaler-class-row.html"), "utf8")
+    .replace(/<!--[\s\S]*?-->/, "")
+    .trim();
+  // Scaler's layout has no <main>: sidebar and content are sibling divs, so
+  // with one stamp on the page nothing stopped the row from widening upward.
+  const html = `<!DOCTYPE html><html><body><div id="layout">
+    <div id="sidebar">
+      <div><div>SUBJECT - 1</div><div>SST Building Mobile Applications</div></div>
+      <div><div>SUBJECT - 2</div><div>SST Data Engineering [SWE]</div></div>
+    </div>
+    <div id="content">
+      <div id="header"><div><span>SUBJECT - 2</span><span>4 weeks</span></div><div>SST Data Engineering [SWE]</div><div>Classes 1/1</div></div>
+      <div id="list-wrap"><div id="list">${raw}</div></div>
+    </div>
+  </div></body></html>`;
+  const { window } = loadFeature(FILES, { html, url: PAGE_URL, chrome: makeChrome() });
+  const rows = window.findLectureRows(window.document);
+  assert.deepEqual(plain(rows.map((r) => [r.stamp, r.title, r.classId])), [
+    ["13 AUG | 09:35 AM", "Linux Fundamentals", "567320"],
+  ]);
+  assert.equal(rows[0].el.parentElement.id, "list", "the row stops at the row, not the page");
+  window.initBulkDownload();
+  const bar = window.document.getElementById("scaler-bulk-download-bar");
+  assert.ok(bar, "bar injected");
+  assert.equal(bar.parentElement.id, "list-wrap", "bar sits right above the class list");
+  assert.equal(window.findSubjectName(window.document), "SST Data Engineering [SWE]");
+});
+
 test("lab classes are unticked and tagged; ranges skip them unless Include labs is ticked", () => {
   const { window } = load();
   window.openBulkModal(window.findLectureRows(window.document), "");
