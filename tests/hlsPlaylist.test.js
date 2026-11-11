@@ -56,3 +56,14 @@ test("hlsChooseTopLevelStream without a master takes the first request; nothing 
   );
   assert.equal(window.hlsChooseTopLevelStream([]), null);
 });
+
+test("real Scaler stream naming: master.m3u8 wins over stream_0 / stream_1", () => {
+  const { window } = loadFeature(FILE);
+  const base = "https://www.scaler.com/videos/f78a35bfd4f6423993ffeba2b7897407/";
+  const chosen = window.hlsChooseTopLevelStream([
+    { url: base + "master.m3u8", text: "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nstream_0.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2\nstream_1.m3u8\n" },
+    { url: base + "stream_0.m3u8", text: MEDIA },
+    { url: base + "stream_1.m3u8", text: MEDIA },
+  ]);
+  assert.equal(chosen, base + "master.m3u8");
+});
