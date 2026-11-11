@@ -205,3 +205,32 @@ test("capture: no player → a clear failure, and the watch is still torn down",
   assert.match(result.error, /player never appeared/);
   assert.ok(stopped);
 });
+
+// ── Scaler's real markup (tests/fixtures/scaler-player.html) ─────────────────
+
+const REAL = require("fs").readFileSync(require("path").join(__dirname, "fixtures/scaler-player.html"), "utf8");
+const [REAL_PANEL, REAL_CONTROLS] = REAL.replace(/<!--[\s\S]*?-->/, "").trim().split("\n");
+
+test("real Scaler markup: the open playlist panel reads as Part 1 · 15 / Part 2 · 99", () => {
+  const { window } = loadFeature(FILES, { html: `<!DOCTYPE html><html><body>${REAL_PANEL}${REAL_CONTROLS}</body></html>` });
+  const parts = window.findPlaylistParts(window.document);
+  assert.deepEqual(Array.from(parts, (p) => [p.label, p.minutes]), [["Part 1", 15], ["Part 2", 99]]);
+  assert.equal(parts[1].target.localName, "h3", "click goes to the item's title");
+  assert.equal(window.lectureHasPlaylist(window.document), true);
+});
+
+test("real Scaler markup: panel closed → the unlabelled icon-playlist control still counts", () => {
+  const { window } = loadFeature(FILES, { html: `<!DOCTYPE html><html><body>${REAL_CONTROLS}</body></html>` });
+  const toggle = window.findPlaylistToggle(window.document);
+  assert.ok(toggle && toggle.querySelector("i.icon-playlist"), "the <a> wrapping i.icon-playlist");
+  assert.equal(window.lectureHasPlaylist(window.document), true);
+});
+
+test("real Scaler markup: Play is the play toggle while it shows the play icon, never while playing", () => {
+  const html = `<!DOCTYPE html><html><body>${REAL_CONTROLS}</body></html>`;
+  const { window } = loadFeature(FILES, { html });
+  assert.equal(window.findPlayControl(window.document).getAttribute("data-cy"), "video-player-play-toggle");
+
+  const playing = loadFeature(FILES, { html: html.replace('<i class="icon-play">', '<i class="icon-pause">') }).window;
+  assert.equal(playing.findPlayControl(playing.document), null, "a pause button is not clicked");
+});

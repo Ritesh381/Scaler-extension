@@ -88,8 +88,11 @@ two-part lecture silently covered Part 1 and was cached as the whole lecture's.
 
 **Detection** — `lectureHasPlaylist()` in
 [playlistCapture.js](../extension-main/content/features/videoDownloader/playlistCapture.js): when the
-playlist panel is open, two or more listed parts; when it's closed, a player control labelled
-"playlist" (`title` / `aria-label` / tooltip attributes inside `.vp-controls`). Single-part
+playlist panel is open, two or more listed parts; when it's closed, the player's playlist control —
+on Scaler an unlabelled `<a><i class="icon-playlist"></i></a>` inside `.vp-controls` (label
+attributes are the fallback). Checked against markup captured from a real 2-part lecture
+(`tests/fixtures/scaler-player.html`). The capture tab starts playback with the big "Play" overlay,
+else `[data-cy="video-player-play-toggle"]` — only while it shows `icon-play`, so it never pauses. Single-part
 lectures keep the old flow untouched.
 
 **Parsing the panel** is text-based, not class-based: the panel is found from its "Playlist"

@@ -87,10 +87,14 @@ function findPlaylistParts(root = document) {
 
 /**
  * The control that opens/closes the playlist panel ("Toggle playlist (P)"),
- * or null. Looked up by its label attributes inside the player controls.
+ * or null. Scaler's player renders it as an unlabelled
+ * `<a><i class="icon-playlist"></i></a>` (its tooltip is a separate element),
+ * so the icon is checked first; label attributes are the fallback.
  */
 function findPlaylistToggle(root = document) {
   const scope = root.querySelector(".vp-controls") || root;
+  const icon = scope.querySelector("i.icon-playlist");
+  if (icon) return icon.closest("a, button") || icon;
   const attrs = ["title", "aria-label", "data-tip", "data-tooltip", "data-title"];
   return (
     Array.from(scope.querySelectorAll(attrs.map((a) => `[${a}]`).join(","))).find((el) =>
@@ -151,16 +155,20 @@ function playlistSleep(ms) {
 }
 
 /**
- * The player's own Play control: labelled "Play", or showing the text "Play"
- * (the big overlay on an unstarted recording).
+ * The player's own Play control: the big "Play" overlay on an unstarted
+ * recording, else the controls' play toggle (`data-cy="video-player-play-toggle"`)
+ * — but only while it shows the play icon, since clicking it mid-playback
+ * would pause — else anything labelled "Play".
  */
 function findPlayControl(root = document) {
+  const overlay = playlistTextNodes(root.body || root, (t) => t.toLowerCase() === "play")[0];
+  if (overlay) return overlay.parentElement;
+  const toggle = root.querySelector('[data-cy="video-player-play-toggle"]');
+  if (toggle && toggle.querySelector("i.icon-play")) return toggle;
   const labelled = Array.from(root.querySelectorAll("[aria-label],[title]")).find((el) =>
     /^play$/i.test((el.getAttribute("aria-label") || el.getAttribute("title") || "").trim()),
   );
-  if (labelled) return labelled;
-  const textNode = playlistTextNodes(root.body || root, (t) => t.toLowerCase() === "play")[0];
-  return textNode ? textNode.parentElement : null;
+  return labelled || null;
 }
 
 /**
