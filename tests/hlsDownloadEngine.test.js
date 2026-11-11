@@ -143,12 +143,33 @@ test("aborting stops the download with an AbortError", async () => {
   assert.ok(out.writes.length < 40, "stopped early");
 });
 
-test("downloadToMemory returns every chunk concatenated in order", async () => {
+/** Read a jsdom Blob's bytes (jsdom's Blob has no arrayBuffer()). */
+function blobBytes(window, blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new window.FileReader();
+    reader.onload = () => resolve(Array.from(new Uint8Array(reader.result)));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
+test("downloadToMemory returns a Blob of every chunk in order, built without a combined copy", async () => {
   const { fetch } = cdn({ segments: 5, delay: (i) => (5 - i) * 2 });
   const { window } = loadFeature(FILE, { fetch });
+  // Record every Blob's parts: none may be one buffer holding the whole file.
+  const RealBlob = window.Blob;
+  const blobParts = [];
+  window.Blob = function (parts, opts) {
+    blobParts.push(parts);
+    return new RealBlob(parts, opts);
+  };
   const { engine } = engineFor(window, { type: "audio" });
-  const buf = await engine.downloadToMemory(await engine.resolveSegments(BASE + "master.m3u8"));
-  assert.deepEqual(Array.from(new Uint8Array(buf)), [0, 1, 2, 3, 4]);
+  const blob = await engine.downloadToMemory(await engine.resolveSegments(BASE + "master.m3u8"), null, "audio/mpeg");
+  window.Blob = RealBlob;
+  assert.equal(blob.type, "audio/mpeg");
+  assert.deepEqual(await blobBytes(window, blob), [0, 1, 2, 3, 4]);
+  const buffers = blobParts.flat().filter((p) => !(p instanceof RealBlob));
+  assert.ok(buffers.length > 0 && buffers.every((p) => p.byteLength === 1), "built from the 1-byte chunks themselves");
 });
 
 test("directFirst: fetches directly when the CDN answers; the proxy isn't touched", async () => {
@@ -190,4 +211,144 @@ test("directFirst: one failed direct fetch switches the rest of the download to 
   await engine.downloadConcurrently(segs, out);
   assert.deepEqual(out.writes, [0, 1, 2, 3], "nothing lost");
   assert.equal(proxied, 4, "every chunk via the proxy once direct failed");
+});
+
+// ── Transport, rendition choice, backpressure, failures ──────────────────────
+
+test("proxy replies in base64 are decoded; legacy number arrays still work", async () => {
+  const { window } = loadFeature(FILE);
+  const bytes = [0, 1, 127, 128, 254, 255, 10, 13];
+  const b64 = Buffer.from(bytes).toString("base64");
+  assert.deepEqual(Array.from(new Uint8Array(window.hlsDecodeProxyBytes(b64, "base64"))), bytes);
+  assert.deepEqual(Array.from(new Uint8Array(window.hlsDecodeProxyBytes(bytes))), bytes);
+  // The atob fallback, for Chrome builds without Uint8Array.fromBase64.
+  window.eval("delete Uint8Array.fromBase64");
+  assert.deepEqual(Array.from(new Uint8Array(window.hlsDecodeProxyBytes(b64, "base64"))), bytes);
+});
+
+test("a base64 proxy reply lands as the right bytes in the file", async () => {
+  const { fetch } = cdn({ segments: 3 });
+  const chrome = makeChrome();
+  chrome.tabs = {
+    sendMessage: (tabId, msg, cb) => {
+      fetch(msg.url).then(async (res) =>
+        cb(
+          msg.type === "text"
+            ? { success: true, data: await res.text() }
+            : { success: true, data: Buffer.from(await res.arrayBuffer()).toString("base64"), encoding: "base64" },
+        ),
+      );
+    },
+  };
+  const { window } = loadFeature(FILE, { fetch, chrome });
+  const { engine } = engineFor(window, { type: "video", sourceTabId: 7 });
+  const out = writable();
+  await engine.downloadConcurrently(await engine.resolveSegments(BASE + "master.m3u8"), out);
+  assert.deepEqual(out.writes, [0, 1, 2]);
+});
+
+const MUXED = `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=2400000,CODECS="avc1.640028,mp4a.40.2"
+1080p/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=150000,CODECS="avc1.42c00d"
+novideo-audio/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=400000,CODECS="avc1.4d401e,mp4a.40.2"
+360p/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1200000,CODECS="avc1.4d401f,mp4a.40.2"
+720p/index.m3u8
+`;
+
+test("no audio rendition: audio/transcript take the lightest variant with AAC; video the heaviest", () => {
+  const { window } = loadFeature(FILE);
+  const pick = (type, master) =>
+    engineFor(window, { type }).engine.getMediaPlaylistUrl(master, BASE + "master.m3u8");
+  assert.equal(pick("video", MUXED), BASE + "1080p/index.m3u8");
+  assert.equal(pick("audio", MUXED), BASE + "360p/index.m3u8", "skips the variant declared without mp4a");
+  assert.equal(pick("transcript", MUXED), BASE + "360p/index.m3u8");
+  // No CODECS at all: simply the lowest bandwidth.
+  const bare = MASTER.replace(/#EXT-X-MEDIA.*\n/, "");
+  assert.equal(pick("audio", bare), BASE + "360p/index.m3u8");
+  assert.equal(pick("video", bare), BASE + "720p/index.m3u8");
+});
+
+test("backpressure: one slow chunk holds workers within the reorder window", async () => {
+  const total = 60;
+  const window_ = 12; // HLS_REORDER_WINDOW = 2 × HLS_CONCURRENCY
+  let written = 0;
+  let maxAhead = 0;
+  const base = cdn({ segments: total, delay: (i) => (i === 0 ? 150 : 1) });
+  const fetch = async (url, opts) => {
+    const seg = url.match(/seg(\d+)\.ts$/);
+    if (seg) maxAhead = Math.max(maxAhead, Number(seg[1]) - written);
+    return base.fetch(url, opts);
+  };
+  const { window } = loadFeature(FILE, { fetch });
+  const { engine } = engineFor(window, { type: "video" });
+  const out = { writes: [], write: async (d) => { written++; out.writes.push(new Uint8Array(d)[0]); } };
+  await engine.downloadConcurrently(await engine.resolveSegments(BASE + "master.m3u8"), out);
+  assert.ok(maxAhead < window_, `never more than the window ahead (was ${maxAhead})`);
+  assert.deepEqual(out.writes, Array.from({ length: total }, (_, i) => i));
+});
+
+test("a write error stops the workers and rejects once with that error", async () => {
+  const total = 200;
+  const { fetch, requested } = cdn({ segments: total, delay: () => 1 });
+  const { window } = loadFeature(FILE, { fetch });
+  const { engine } = engineFor(window, { type: "video" });
+  let writes = 0;
+  const out = {
+    write: async () => {
+      if (++writes === 3) throw new Error("disk full");
+    },
+  };
+  const unhandled = [];
+  const onUnhandled = (e) => unhandled.push(e);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    await assert.rejects(engine.downloadConcurrently(await engine.resolveSegments(BASE + "master.m3u8"), out), /disk full/);
+    const fetchedAtFailure = requested.length;
+    await new Promise((r) => setTimeout(r, 50));
+    assert.ok(fetchedAtFailure < 2 + 3 + 12 + 6, `stopped early (${fetchedAtFailure} requests)`);
+    assert.equal(requested.length, fetchedAtFailure, "no fetches after the failure");
+    assert.equal(writes, 3, "nothing written after the failed write");
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
+test("a chunk fetch that hangs times out and goes through the retries", async () => {
+  const base = cdn({ segments: 3 });
+  let hung = 0;
+  const fetch = (url, opts = {}) => {
+    if (url.endsWith("seg1.ts") && hung++ === 0) {
+      // Never answers; only the engine's timeout (its abort signal) ends it.
+      return new Promise((_, reject) => {
+        opts.signal.addEventListener("abort", () => reject(new window.DOMException("aborted", "AbortError")));
+      });
+    }
+    return base.fetch(url, opts);
+  };
+  const { window } = loadFeature(FILE, { fetch });
+  const { engine } = engineFor(window, { type: "video", chunkTimeoutMs: 30 });
+  const out = writable();
+  await engine.downloadConcurrently(await engine.resolveSegments(BASE + "master.m3u8"), out);
+  assert.deepEqual(out.writes, [0, 1, 2]);
+  assert.equal(hung, 2, "retried after the timeout");
+});
+
+test("tee: one pass writes the video and the extracted audio", async () => {
+  const { fetch, requested } = cdn({ segments: 4 });
+  const { window } = loadFeature(FILE, { fetch });
+  const { engine } = engineFor(window, { type: "video" });
+  const video = writable();
+  const audio = writable();
+  // Stand-in extractor: the "audio" of chunk i is the byte i + 100.
+  const extractor = { extract: (raw) => new Uint8Array([new Uint8Array(raw)[0] + 100]) };
+  const { segments, separateAudio } = await engine.resolveStream(BASE + "plain.m3u8");
+  assert.equal(separateAudio, false);
+  await engine.downloadConcurrently(segments, video, null, { writable: audio, extractor });
+  assert.deepEqual(video.writes, [0, 1, 2, 3]);
+  assert.deepEqual(audio.writes, [100, 101, 102, 103]);
+  assert.equal(requested.filter((u) => u.endsWith(".ts")).length, 4, "each segment fetched once");
 });

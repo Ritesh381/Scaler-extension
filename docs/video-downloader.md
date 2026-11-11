@@ -48,9 +48,13 @@ URL never leaks into the next lecture.
 
 It bails if `#scaler-video-downloader` already exists, pre-fetches the lecture slug
 (non-blocking), then builds an icon button plus a dark dropdown with the three options. A
-debounced (300 ms) `MutationObserver` on `document.body` re-injects after SPA navigation; the
-outside-click handler that closes the menu is **removed before being re-added**, so repeated
-injections don't stack listeners on `document`.
+debounced (300 ms) `MutationObserver` on `document.body` re-injects when Scaler re-renders the
+header. It runs **only while the feature is on and the URL is a `/class/<id>` page**, and returns
+early while the button exists. SPA navigation is picked up through urlObserver's `onUrlChange`
+hook (or the Navigation API's `currententrychange` when that hook is missing), which starts or
+stops the observer. With neither available it observes whenever the feature is on. The
+outside-click handler that closes the menu is **removed before being re-added**, and also when
+navigation leaves the class page, so listeners on `document` don't stack.
 
 ## Lecture slug
 
@@ -133,9 +137,10 @@ missing, the transcript is refused — a partial transcript would be cached as t
 ## The download engine (`videoProcessor.js` + `hlsDownloadEngine.js`)
 
 The engine itself lives in [hlsDownloadEngine.js](../extension-main/content/features/videoDownloader/hlsDownloadEngine.js)
-(`createHlsEngine({ sourceTabId, directFirst, type, onLog, onProgress, signal })`; `directFirst` —
-used by bulk download — fetches directly and keeps the proxy as the fallback), shared with the bulk
-download page ([bulk-download.md](bulk-download.md)); `videoProcessor.js` is the page around it.
+(`createHlsEngine({ sourceTabId, directFirst, type, onLog, onProgress, signal, chunkTimeoutMs })`;
+`directFirst` — used by bulk download and the transcript processor — fetches directly and keeps the
+proxy as the fallback), shared with the bulk download page ([bulk-download.md](bulk-download.md))
+and the transcript processor; `videoProcessor.js` is the page around it.
 
 1. **Save target, first.** `window.showSaveFilePicker` is requested **synchronously inside the
    click handler**, before any `await` — the File System Access API needs transient user
@@ -143,28 +148,39 @@ download page ([bulk-download.md](bulk-download.md)); `videoProcessor.js` is the
    (`!navigator.brave`); Firefox has no API. `AbortError` = user cancelled → stop. Any other error
    → fall back to memory buffering.
 2. **Manifest** — fetch the master `.m3u8`. `getMediaPlaylistUrl()` returns it unchanged if it
-   already lists segments; otherwise it picks a rendition. For **audio/transcript** it prefers a
-   dedicated audio-only rendition; for video it takes the highest-bandwidth stream.
+   already lists segments; otherwise it picks a rendition (`hlsPickVariant`). For
+   **audio/transcript** it prefers a dedicated audio-only rendition. Without one, it takes the
+   **lowest-bandwidth** variant whose `CODECS` includes `mp4a` (or, if no variant declares codecs,
+   simply the lowest). The muxed AAC is normally the same in every variant, so this costs a fraction
+   of the bytes. Video takes the highest-bandwidth stream.
 3. **Segments** — `extractSegments()` resolves each chunk URL against the playlist base.
-4. **Concurrent worker pool** — `CONCURRENCY = 6` workers each claim the next unclaimed index,
-   `fetchChunk()` it (3 retries), optionally run it through `TSAudioExtractor`, and submit to an
-   **ordered write queue**. Chunks download in parallel but are written strictly in sequence.
+4. **Concurrent worker pool** (`downloadOrdered`) — `HLS_CONCURRENCY = 6` workers each claim the
+   next unclaimed index, `fetchChunk()` it (3 retries, each attempt capped at **60 s** by an
+   `AbortController`), optionally run it through `TSAudioExtractor`, and park it in a reorder
+   buffer that a single writer drains strictly in sequence. Workers stay at most **12 chunks**
+   (2 × concurrency) ahead of the writer, so one slow chunk can't grow the buffer without bound.
+   The first error (a failed write, or a cancel) aborts in-flight fetches, stops every worker and
+   is thrown once.
 5. **Two output paths**:
    - *Streaming* (Chrome/Edge): each chunk is written straight to disk, so RAM stays flat
      (~5–10 MB) regardless of lecture length. On error the writable is `abort()`ed so no
      half-written file is left behind.
-   - *Memory fallback* (Brave/Firefox): buffer everything, then download via a blob URL, revoked
-     after 10 s.
+   - *Memory fallback* (Brave/Firefox): `downloadToMemory()` returns a `Blob`. Chunks are folded
+     into Blob parts every **32 MB**, so the data leaves the JS heap and is never concatenated into
+     one buffer. It is downloaded via a blob URL, revoked after 10 s.
 6. On success, log the elapsed time and fire `trackCompletedDownload(type)`.
 
 ### CORS proxy
 
 Chunks are served from CloudFront, whose CORS headers are cut for the scaler.com origin. So
 whenever a source tab is known, the processor sends `FETCH_PROXY` to the **content script in the
-source tab**, which fetches from the scaler.com origin and returns text or a
-`Uint8Array`-as-`Array` (arrays survive structured message passing). The proxy goes first:
-`fetchText` and the engine's `fetchChunk` fall back to a direct fetch only when the source tab
-can't be reached; the transcript processor's `fetchChunk` tries the proxy, then a direct fetch.
+source tab**, which fetches from the scaler.com origin and returns text, or binary as a **base64
+string** (`{ success, data, encoding: "base64" }`). Extension messaging is JSON-serialised, and
+base64 costs 1.33× the payload where the old number array cost 4–8×. `hlsDecodeProxyBytes()`
+still accepts a number array from an older content script. Without `directFirst` the proxy goes
+first, and a direct fetch is used only when the source tab can't be reached. With `directFirst`
+the order is reversed until the first direct fetch fails. The proxy listener stays registered
+even when the button is toggled off, because bulk download relays through it.
 
 ## Audio extraction (`tsAudioExtractor.js`)
 
@@ -197,9 +213,11 @@ backend. Fire-and-forget; failures are swallowed and never block a download. See
 `videoDownloader.js` listens for `toggleSetting` with key `video-downloader` itself (it does not
 go through `content.js`):
 
-- **off** — remove `#scaler-video-downloader`, disconnect both the injection observer and the
-  `PerformanceObserver`;
-- **on** — re-inject and **re-arm both observers**. Re-arming the network observer matters: an
+- **off** — `teardown()` runs unconditionally (the button may never have been injected): remove
+  `#scaler-video-downloader`, disconnect the injection observer and the `PerformanceObserver`,
+  drop the navigation listener, and remove the document click listener;
+- **on** — re-inject and **re-arm both observers** (the injection observer only on a class page).
+  Neither observer starts at load while the feature is off. Re-arming the network observer matters: an
   earlier version left it dead after an off→on toggle, so every subsequent download failed with
   "could not locate stream".
 

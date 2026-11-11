@@ -67,7 +67,7 @@ function loadProcessor({ versions, choice }) {
   const { window } = loadFeature([], { html: PAGE_HTML, url: PAGE_URL, chrome, fetch });
   window.eval(
     [
-      "tsAudioExtractor.js",
+      "tsAudioExtractor.js", "hlsDownloadEngine.js",
       "transcriptHeader.js",
       "customAudioTranscriber.js",
       "transcriptProviderConfig.js",

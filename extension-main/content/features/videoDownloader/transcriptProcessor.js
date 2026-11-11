@@ -22,8 +22,6 @@ const providerConfig = mountProviderConfig(document.getElementById("provider-con
 });
 const { select: providerSelect, baseUrlInput, modelInput, apiKeyInput } = providerConfig;
 
-const CONCURRENCY = 6;
-
 // ── Backend Cache Config ──
 const BACKEND_BASE_URL = "https://scalerbackend.vercel.app";
 // const BACKEND_BASE_URL = "http://localhost:3001";
@@ -740,269 +738,34 @@ if (cacheBtn) {
   });
 }
 
-// ── M3U8 Download Helpers ──
-
-async function fetchText(url) {
-  if (sourceTabId && !isNaN(sourceTabId)) {
-    return new Promise((resolve, reject) => {
-      chrome.tabs.sendMessage(
-        sourceTabId,
-        { action: "FETCH_PROXY", url, type: "text" },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            console.error("Proxy error:", chrome.runtime.lastError);
-            fetch(url)
-              .then((res) => res.text())
-              .then(resolve)
-              .catch(reject);
-          } else if (response && response.success) {
-            resolve(response.data);
-          } else {
-            reject(new Error(response?.error || "Proxy fetch failed"));
-          }
-        },
-      );
-    });
-  }
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
-  return await res.text();
-}
-
-function resolveUrl(base, relative) {
-  try {
-    return new URL(relative, base).href;
-  } catch (e) {
-    return relative;
-  }
-}
-
-function getMediaPlaylistUrl(masterText, baseUrl) {
-  const lines = masterText.split("\n").map((l) => l.trim());
-  if (!lines[0].startsWith("#EXTM3U")) throw new Error("Invalid M3U8 format");
-  if (lines.some((l) => l.startsWith("#EXTINF"))) return baseUrl;
-
-  for (const line of lines) {
-    if (line.startsWith("#EXT-X-MEDIA") && line.includes("TYPE=AUDIO")) {
-      const match = line.match(/URI="([^"]+)"/);
-      if (match && match[1]) {
-        return resolveUrl(baseUrl, match[1]);
-      }
-    }
-  }
-
-  let bestBandwidth = 0;
-  let bestUrl = null;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith("#EXT-X-STREAM-INF")) {
-      const bwMatch = lines[i].match(/BANDWIDTH=(\d+)/);
-      if (bwMatch) {
-        const bw = parseInt(bwMatch[1], 10);
-        if (bw > bestBandwidth) {
-          bestBandwidth = bw;
-          for (let j = i + 1; j < lines.length; j++) {
-            if (lines[j] && !lines[j].startsWith("#")) {
-              bestUrl = lines[j];
-              break;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (bestUrl) return resolveUrl(baseUrl, bestUrl);
-  const fallback = lines.find((l) => l && !l.startsWith("#"));
-  if (fallback) return resolveUrl(baseUrl, fallback);
-  throw new Error("No media streams found.");
-}
-
-function extractSegments(mediaText, baseUrl) {
-  const lines = mediaText.split("\n").map((l) => l.trim());
-  const segments = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith("#EXTINF")) {
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j] && !lines[j].startsWith("#")) {
-          segments.push(resolveUrl(baseUrl, lines[j]));
-          break;
-        }
-      }
-    }
-  }
-  return segments;
-}
-
-// Reason the last chunk fetch gave up, so downloadSegments can report something
-// better than "(null)". Without it a dead source tab and a 403 look identical.
-let lastChunkFetchError = null;
-
-function proxyFetchChunk(url) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(
-      sourceTabId,
-      { action: "FETCH_PROXY", url, type: "binary" },
-      (resp) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else if (resp && resp.success) {
-          resolve(resp.data);
-        } else {
-          reject(new Error(resp?.error || "Proxy fetch failed"));
-        }
-      },
-    );
-  });
-}
-
-async function fetchChunk(url, index) {
-  let lastError = null;
-
-  for (let retry = 0; retry < 3; retry++) {
-    // The source tab proxies through the page origin, which is what the CDN's
-    // CORS headers are cut for, so try it first when we have one.
-    if (sourceTabId && !isNaN(sourceTabId)) {
-      try {
-        return new Uint8Array(await proxyFetchChunk(url)).buffer;
-      } catch (e) {
-        lastError = e;
-      }
-    }
-
-    // Fall back to fetching from this page, exactly like fetchText already
-    // does. The extension holds *.scaler.com host permission, so it can pull
-    // segments itself once the source tab is closed, navigated, or its content
-    // script is gone — previously that killed every segment of the lecture.
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.arrayBuffer();
-    } catch (e) {
-      lastError = e;
-    }
-
-    if (retry < 2) await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
-  }
-
-  lastChunkFetchError = lastError;
-  return null;
-}
-
-// downloadSegments returns the raw per-segment audio Uint8Arrays in order.
-// For small lectures these are combined later; for large ones the transcriber
-// processes them in batches so the browser never chokes on one giant buffer.
-async function downloadSegments(segments, audioExtractor) {
-  const total = segments.length;
-  let nextToFetch = 0;
-  let nextToWrite = 0;
-  const buffer = new Map();
-  const audioSegments = []; // one Uint8Array per TS segment
-  let fetchFailures = 0;
-  let extractedBytes = 0;
-
-  function updateUI(written) {
-    const pct = ((written / total) * 100).toFixed(1);
-    progressBar.style.width = pct + "%";
-    chunksText.innerText = `${written} / ${total} chunks`;
-    percentText.innerText = `${pct}%`;
-  }
-
-  function flush() {
-    while (buffer.has(nextToWrite)) {
-      const data = buffer.get(nextToWrite);
-      buffer.delete(nextToWrite);
-      // Keep even empty Uint8Arrays so indices stay aligned
-      audioSegments.push(data && data.byteLength > 0 ? data : new Uint8Array(0));
-      nextToWrite++;
-      updateUI(nextToWrite);
-    }
-  }
-
-  async function worker() {
-    while (true) {
-      const idx = nextToFetch++;
-      if (idx >= total) break;
-      const raw = await fetchChunk(segments[idx], idx);
-
-      // fetchChunk returns null after exhausting retries. Without this line a
-      // whole lecture of 403s looks identical to a decode failure downstream.
-      if (!raw) {
-        fetchFailures++;
-        if (fetchFailures <= 5) {
-          log(
-            `⚠ Chunk ${idx + 1} FETCH FAILED (${lastChunkFetchError?.message || "unknown error"}) — ${segments[idx]}`,
-          );
-        }
-      }
-
-      const processed = raw ? audioExtractor.extract(raw) : new Uint8Array(0);
-
-      // Sample the first few chunks: fetched vs extracted byte counts plus the
-      // leading bytes identify the container (0x47 = MPEG-TS, ftyp/styp = fMP4,
-      // neither = encrypted or unknown).
-      if (idx < 3 && raw) {
-        const hex = (buf) =>
-          [...new Uint8Array(buf).slice(0, 16)]
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join(" ");
-        // ADTS frames start with sync word 0xFFF (ff f1 / ff f9). Anything else
-        // here means decodeAudioData will reject the payload.
-        const first = processed[0];
-        const second = processed[1];
-        const isAdts = first === 0xff && (second & 0xf0) === 0xf0;
-        const st = audioExtractor.audioStreamType;
-        log(
-          `Chunk ${idx + 1}: fetched ${raw.byteLength}B, extracted ${processed.byteLength}B, head=${hex(raw)}`,
-        );
-        log(
-          `Chunk ${idx + 1}: streamType=${st === null ? "none" : "0x" + st.toString(16)}, ` +
-            `audioPid=${audioExtractor.audioPid}, ADTS=${isAdts ? "yes" : "NO"}, ` +
-            `extractedHead=${hex(processed)}`,
-        );
-      }
-
-      extractedBytes += processed.byteLength;
-      buffer.set(idx, processed);
-      flush();
-    }
-  }
-
-  log(`Downloading audio (${CONCURRENCY}x parallel)...`);
-  const workers = [];
-  for (let i = 0; i < CONCURRENCY; i++) workers.push(worker());
-  await Promise.all(workers);
-  flush();
-
-  if (fetchFailures > 5) {
-    log(`⚠ ...and ${fetchFailures - 5} more chunk fetch failures (${fetchFailures}/${total} total).`);
-  }
-  log(
-    `Audio extracted: ${(extractedBytes / 1024 / 1024).toFixed(2)} MB from ${total} segment(s)` +
-      (fetchFailures > 0 ? ` — ${fetchFailures} fetch failure(s).` : "."),
-  );
-  if (extractedBytes === 0) {
-    log(
-      fetchFailures === total
-        ? `❌ Every segment fetch failed (last error: ${lastChunkFetchError?.message || "unknown"}) — a network/permission problem, not an audio problem.`
-        : "❌ Segments downloaded but 0 audio bytes extracted — segments are not MPEG-TS AAC (see head= bytes above).",
-    );
-  }
-
-  return audioSegments;
-}
+// ── M3U8 Download (hlsDownloadEngine.js) ──
+//
+// Same engine as the video/audio downloads: direct fetch first (the extension
+// can reach www.scaler.com itself; relaying through the source tab caps
+// throughput), the source tab's proxy as the fallback, a per-chunk timeout,
+// and a bounded reorder window.
 
 /**
  * Download one stream's audio: playlist → segments → per-segment AAC.
- * Returns the per-segment Uint8Arrays in order (see downloadSegments).
+ * Returns the per-segment Uint8Arrays in order — kept separate (not one
+ * combined buffer) so the transcriber can batch a 3.5-hour lecture — and the
+ * number of segments that could not be fetched (each one is a gap).
+ * @returns {Promise<{audioSegments: Uint8Array[], fetchFailures: number}>}
  */
 async function downloadPartAudio(streamUrl) {
-  const masterText = await fetchText(streamUrl);
-  const mediaPlaylistUrl = getMediaPlaylistUrl(masterText, streamUrl);
-  const mediaText = await fetchText(mediaPlaylistUrl);
-  const segments = extractSegments(mediaText, mediaPlaylistUrl);
-
-  if (segments.length === 0) throw new Error("0 segments found.");
+  const engine = createHlsEngine({
+    sourceTabId: Number.isNaN(sourceTabId) ? undefined : sourceTabId,
+    directFirst: true,
+    type: "transcript",
+    onLog: log,
+    onProgress: (done, total) => {
+      const pct = ((done / total) * 100).toFixed(1);
+      progressBar.style.width = pct + "%";
+      chunksText.innerText = `${done} / ${total} chunks`;
+      percentText.innerText = `${pct}%`;
+    },
+  });
+  const { segments, mediaText } = await engine.resolveStream(streamUrl);
 
   // TSAudioExtractor only understands MPEG-TS. These two tags mean the
   // segments are a format it will silently return 0 bytes for, so surface it
@@ -1015,10 +778,62 @@ async function downloadPartAudio(streamUrl) {
   }
 
   const audioExtractor = new TSAudioExtractor();
-  // Download all segments as individual buffers (not one combined blob).
-  // This prevents the browser from choking on a single massive ArrayBuffer
-  // for long lectures (700+ segments / 3.5 hrs).
-  return downloadSegments(segments, audioExtractor);
+  const total = segments.length;
+  const audioSegments = []; // one Uint8Array per TS segment
+  let fetchFailures = 0;
+  let extractedBytes = 0;
+
+  const extract = (raw, idx) => {
+    // fetchChunk returns null after exhausting retries (and logs why).
+    if (!raw) {
+      fetchFailures++;
+      return new Uint8Array(0);
+    }
+    const processed = audioExtractor.extract(raw);
+
+    // Sample the first few chunks: fetched vs extracted byte counts plus the
+    // leading bytes identify the container (0x47 = MPEG-TS, ftyp/styp = fMP4,
+    // neither = encrypted or unknown).
+    if (idx < 3) {
+      const hex = (buf) =>
+        [...new Uint8Array(buf.buffer || buf, buf.byteOffset || 0, Math.min(16, buf.byteLength))]
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join(" ");
+      // ADTS frames start with sync word 0xFFF (ff f1 / ff f9). Anything else
+      // here means decodeAudioData will reject the payload.
+      const isAdts = processed[0] === 0xff && (processed[1] & 0xf0) === 0xf0;
+      const st = audioExtractor.audioStreamType;
+      log(
+        `Chunk ${idx + 1}: fetched ${raw.byteLength}B, extracted ${processed.byteLength}B, head=${hex(raw)}`,
+      );
+      log(
+        `Chunk ${idx + 1}: streamType=${st === null ? "none" : "0x" + st.toString(16)}, ` +
+          `audioPid=${audioExtractor.audioPid}, ADTS=${isAdts ? "yes" : "NO"}, ` +
+          `extractedHead=${hex(processed)}`,
+      );
+    }
+    extractedBytes += processed.byteLength;
+    return processed;
+  };
+
+  log(`Downloading audio (${HLS_CONCURRENCY}x parallel)...`);
+  // Keep even empty Uint8Arrays so indices stay aligned.
+  await engine.downloadOrdered(segments, extract, (data) => {
+    audioSegments.push(data);
+  }, "Audio download");
+
+  log(
+    `Audio extracted: ${(extractedBytes / 1024 / 1024).toFixed(2)} MB from ${total} segment(s)` +
+      (fetchFailures > 0 ? ` — ${fetchFailures} fetch failure(s).` : "."),
+  );
+  if (extractedBytes === 0) {
+    log(
+      fetchFailures === total
+        ? `❌ Every segment fetch failed (last error: ${engine.lastChunkError()?.message || "unknown"}) — a network/permission problem, not an audio problem.`
+        : "❌ Segments downloaded but 0 audio bytes extracted — segments are not MPEG-TS AAC (see head= bytes above).",
+    );
+  }
+  return { audioSegments, fetchFailures };
 }
 
 /**
@@ -1164,7 +979,10 @@ startBtn.addEventListener("click", async () => {
         streamParts.length > 1 ? ` — ${part.label} (${i + 1}/${streamParts.length})` : "";
 
       statusText.innerText = `Step 2/3: Downloading audio${partTag}...`;
-      const audioSegments = await downloadPartAudio(part.url);
+      const { audioSegments, fetchFailures } = await downloadPartAudio(part.url);
+      // A segment that never downloaded is a hole in the transcript; don't
+      // let it be cached as the complete lecture.
+      if (fetchFailures > 0) hasFailures = true;
 
       progressBar.style.width = "0%";
       chunksText.innerText = "—";

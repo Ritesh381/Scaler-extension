@@ -3,6 +3,11 @@
 // Injects a download button into Scaler recordings.
 // ============================================================
 
+// Bytes per btoa() call in the base64 fallback: a multiple of 3, so the
+// pieces concatenate into one valid base64 string, and small enough for
+// String.fromCharCode.apply's argument limit.
+const VIDEO_DOWNLOADER_B64_CHUNK = 32766;
+
 class VideoDownloader {
   constructor() {
     this.enabled = true;
@@ -10,7 +15,32 @@ class VideoDownloader {
     this._lastSlugUrl = null; // tracks which URL the slug was fetched for
     this._slugPromise = null; // shared promise to avoid duplicate fetches
     this._networkObserver = null; // watches for .m3u8 requests
+    this._observer = null; // watches for the recording header (class pages only)
+    this._observerTimer = null; // debounce for _observer
+    this._navAbort = null; // removes the navigation listener on teardown
     this.init();
+  }
+
+  /**
+   * Encode bytes as base64 for FETCH_PROXY replies. Extension messaging is
+   * JSON-serialised (no ArrayBuffer transfer), and base64 costs 1.33x where
+   * a number array cost 4–8x — times six chunks in flight.
+   * @param {ArrayBuffer} buffer
+   * @returns {string}
+   */
+  static toBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    if (typeof bytes.toBase64 === "function") return bytes.toBase64();
+    const pieces = [];
+    for (let i = 0; i < bytes.length; i += VIDEO_DOWNLOADER_B64_CHUNK) {
+      pieces.push(btoa(String.fromCharCode.apply(null, bytes.subarray(i, i + VIDEO_DOWNLOADER_B64_CHUNK))));
+    }
+    return pieces.join("");
+  }
+
+  /** A class page: the only place a recording (and so the button) can appear. */
+  static isClassPage() {
+    return /\/class\/\d+/.test(window.location.pathname);
   }
 
   async init() {
@@ -30,49 +60,99 @@ class VideoDownloader {
     // Listen for live toggle changes from the popup and proxy requests
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.action === "toggleSetting" && msg.key === "video-downloader") {
-        this.enabled = msg.value;
-        const existing = document.getElementById("scaler-video-downloader");
-        if (!msg.value && existing) {
-          existing.remove();
-          // ── Fix #1: disconnect observer when feature is disabled ──
-          this._observer?.disconnect();
-          this._observer = null;
-          this._networkObserver?.disconnect();
-          this._networkObserver = null;
-        } else if (msg.value) {
-          this.checkAndInject();
-          this._startObserver();
-          // Re-arm the .m3u8 capture too — the disable branch tore it down, so
-          // without this the network observer stays dead after an off→on toggle
-          // and every download fails ("could not locate stream"). Self-guards
-          // against double-start.
-          this._startNetworkObserver();
+        this.enabled = !!msg.value;
+        if (this.enabled) {
+          this._activate();
+        } else {
+          // Unconditional: the observers and listeners outlive the button
+          // (e.g. toggled off on a page where it never got injected).
+          this.teardown();
         }
       } else if (msg.action === "FETCH_PROXY") {
-        // Proxy fetch request to bypass CORS for CloudFront chunks
+        // Proxy fetch request to bypass CORS for CloudFront chunks. Kept on
+        // even when the button is off: bulk download relays through it.
         fetch(msg.url)
-          .then(async res => {
+          .then(async (res) => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            if (msg.type === "text") {
-              return { data: await res.text() };
-            } else {
-              // Convert ArrayBuffer to Array for safe message passing
-              const buffer = await res.arrayBuffer();
-              return { data: Array.from(new Uint8Array(buffer)) };
-            }
+            if (msg.type === "text") return { data: await res.text() };
+            return { data: VideoDownloader.toBase64(await res.arrayBuffer()), encoding: "base64" };
           })
-          .then(result => sendResponse({ success: true, data: result.data }))
-          .catch(err => sendResponse({ success: false, error: err.message }));
+          .then((result) => sendResponse({ success: true, ...result }))
+          .catch((err) => sendResponse({ success: false, error: err.message }));
         return true; // Keep message channel open for async response
       }
     });
 
-    if (this.enabled) {
-      this.checkAndInject();
-    }
+    if (this.enabled) this._activate();
+  }
 
-    this._startObserver();
+  /** Start everything the enabled feature needs. Idempotent. */
+  _activate() {
     this._startNetworkObserver();
+    this._watchNavigation();
+    this._syncPage();
+  }
+
+  /**
+   * Remove the button and stop every observer and listener. Safe to call in
+   * any state.
+   */
+  teardown() {
+    document.getElementById("scaler-video-downloader")?.remove();
+    this._stopObserver();
+    this._networkObserver?.disconnect();
+    this._networkObserver = null;
+    this._navAbort?.abort();
+    this._navAbort = null;
+    if (this._outsideClickHandler) {
+      document.removeEventListener("click", this._outsideClickHandler);
+      this._outsideClickHandler = null;
+    }
+    this._menuOptions = null;
+  }
+
+  /**
+   * Observe the DOM only while enabled and on a class page; elsewhere a
+   * body-wide observer is pure overhead.
+   */
+  _syncPage() {
+    if (this.enabled && (this._navFallback || VideoDownloader.isClassPage())) {
+      this.checkAndInject();
+      this._startObserver();
+    } else {
+      this._stopObserver();
+      // The SPA took the button with the old page; its document listener
+      // would otherwise stay until the next injection.
+      if (this._outsideClickHandler && !document.getElementById("scaler-video-downloader")) {
+        document.removeEventListener("click", this._outsideClickHandler);
+        this._outsideClickHandler = null;
+      }
+    }
+  }
+
+  /**
+   * Re-check the page on SPA navigation. Prefers urlObserver's hook; falls
+   * back to the Navigation API, and without either keeps observing (the old
+   * behaviour) since a pushState can't be seen from the isolated world.
+   */
+  _watchNavigation() {
+    if (this._navHooked || this._navAbort) return;
+    if (typeof onUrlChange === "function") {
+      // Registered once for the tab's life; the hook checks this.enabled.
+      this._navHooked = true;
+      onUrlChange(() => {
+        if (this.enabled) this._syncPage();
+      });
+      return;
+    }
+    if (window.navigation && typeof window.navigation.addEventListener === "function") {
+      this._navAbort = new AbortController();
+      window.navigation.addEventListener("currententrychange", () => this._syncPage(), {
+        signal: this._navAbort.signal,
+      });
+      return;
+    }
+    this._navFallback = true;
   }
 
   /**
@@ -182,21 +262,25 @@ class VideoDownloader {
   }
 
   _startObserver() {
-    // ── Fix #1: debounced MutationObserver, stored for disconnect ──
+    // Debounced, stored for disconnect. Cheap while the button is present:
+    // the player's controls mutate every second.
     if (this._observer) return; // already watching
-    let _debounceTimer = null;
     this._observer = new MutationObserver(() => {
-      clearTimeout(_debounceTimer);
-      _debounceTimer = setTimeout(() => {
-        if (
-          this.enabled &&
-          !document.getElementById("scaler-video-downloader")
-        ) {
-          this.checkAndInject();
-        }
+      if (document.getElementById("scaler-video-downloader")) return;
+      clearTimeout(this._observerTimer);
+      this._observerTimer = setTimeout(() => {
+        this._observerTimer = null;
+        if (this.enabled && VideoDownloader.isClassPage()) this.checkAndInject();
       }, 300);
     });
     this._observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  _stopObserver() {
+    this._observer?.disconnect();
+    this._observer = null;
+    clearTimeout(this._observerTimer);
+    this._observerTimer = null;
   }
 
   checkAndInject() {
@@ -298,7 +382,8 @@ class VideoDownloader {
       menu.style.display = opening ? "block" : "none";
     };
 
-    // ── Fix #2: remove stale outside-click handler before adding a new one ──
+    // Remove a stale outside-click handler before adding a new one; teardown()
+    // removes the current one.
     if (this._outsideClickHandler) {
       document.removeEventListener("click", this._outsideClickHandler);
     }

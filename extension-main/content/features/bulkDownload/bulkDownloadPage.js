@@ -203,11 +203,30 @@ async function writeTextFile(name, text) {
   }
 }
 
+/** Open `name` in the output folder; on failure, remove what was written. */
+async function openOutputFile(name) {
+  const handle = await outputDir.getFileHandle(name, { create: true });
+  const writable = await handle.createWritable();
+  return {
+    writable,
+    discard: async () => {
+      await writable.abort().catch(() => {});
+      await outputDir.removeEntry(name).catch(() => {});
+    },
+  };
+}
+
 /**
  * Download one stream into `name`. Streams to disk when a folder was picked
  * (RAM stays flat); otherwise buffers in memory and hands over a file.
+ *
+ * `audioName` (video only, folder only): also save the stream's audio there
+ * from the same segments, so a lecture wanted as video and audio is fetched
+ * once. Skipped when the stream has a separate audio rendition — its video
+ * segments may carry no audio.
+ * @returns {Promise<boolean>} whether the audio was saved too
  */
-async function downloadStream(url, kind, name, onPercent, signal) {
+async function downloadStream(url, kind, name, onPercent, signal, audioName = null) {
   const engine = createHlsEngine({
     sourceTabId: job.sourceTabId ?? undefined,
     // Recordings come from www.scaler.com, which the extension can fetch
@@ -220,25 +239,34 @@ async function downloadStream(url, kind, name, onPercent, signal) {
     },
     onProgress: (done, total) => onPercent(Math.floor((done / total) * 100)),
   });
-  const segments = await engine.resolveSegments(url);
+  const { segments, separateAudio } = await engine.resolveStream(url);
   const extractor = kind === "audio" ? new TSAudioExtractor() : null;
 
   if (!outputDir) {
-    const buffer = await engine.downloadToMemory(segments, extractor);
-    downloadBlob(new Blob([buffer], { type: kind === "audio" ? "audio/mpeg" : "video/mp4" }), name);
-    return;
+    const blob = await engine.downloadToMemory(segments, extractor, kind === "audio" ? "audio/mpeg" : "video/mp4");
+    downloadBlob(blob, name);
+    return false;
   }
-  const handle = await outputDir.getFileHandle(name, { create: true });
-  const writable = await handle.createWritable();
+  const tee = kind === "video" && audioName && !separateAudio;
+  const main = await openOutputFile(name);
+  let audio = null;
   try {
-    await engine.downloadConcurrently(segments, writable, extractor);
-    await writable.close();
+    if (tee) audio = await openOutputFile(audioName);
+    await engine.downloadConcurrently(
+      segments,
+      main.writable,
+      extractor,
+      audio ? { writable: audio.writable, extractor: new TSAudioExtractor() } : undefined,
+    );
+    await main.writable.close();
+    if (audio) await audio.writable.close();
   } catch (err) {
     // Leave no half-written file behind.
-    await writable.abort().catch(() => {});
-    await outputDir.removeEntry(name).catch(() => {});
+    await main.discard();
+    if (audio) await audio.discard();
     throw err;
   }
+  return !!audio;
 }
 
 // ── Transcripts ────────────────────────────────────────────────────────────
@@ -363,6 +391,11 @@ async function doMedia(lecture, mediaKinds, signal) {
   for (const kind of mediaKinds) setStatus(lecture, kind, "Finding the stream…", "busy");
   const parts = await lectureParts(lecture);
   const slug = await lectureSlug(lecture.classId);
+  // Both wanted and saving to a folder: the video pass writes the audio too
+  // (mediaKinds is ordered video first). A part whose tee didn't happen —
+  // separate audio rendition, or the video failed — gets its own audio pass.
+  const teeAudio = !!outputDir && mediaKinds.includes("video") && mediaKinds.includes("audio");
+  const audioSaved = new Set(); // part indices whose audio came with the video
 
   for (const kind of mediaKinds) {
     try {
@@ -371,13 +404,20 @@ async function doMedia(lecture, mediaKinds, signal) {
         const part = parts[i];
         const tag = parts.length > 1 ? `${part.label}: ` : "";
         if (!part.url) throw new Error(`Couldn't find the stream for ${part.label}.`);
-        await downloadStream(
+        if (kind === "audio" && audioSaved.has(i)) continue;
+        const withAudio = kind === "video" && teeAudio;
+        const teed = await downloadStream(
           part.url,
           kind,
           bulkFileName(lecture, ext, part.label),
-          (pct) => setStatus(lecture, kind, `${tag}${pct}%`, "busy"),
+          (pct) => {
+            setStatus(lecture, kind, `${tag}${pct}%`, "busy");
+            if (withAudio) setStatus(lecture, "audio", `${tag}${pct}% (with video)`, "busy");
+          },
           signal,
+          withAudio ? bulkFileName(lecture, "mp3", part.label) : null,
         );
+        if (teed) audioSaved.add(i);
       }
       trackDownload(kind, lecture, slug);
       setStatus(lecture, kind, parts.length > 1 ? `Saved (${parts.length} parts)` : "Saved", "good");
@@ -431,7 +471,11 @@ async function run(lectures) {
   });
 
   try {
-    await runWithConcurrency(lectures, parallelCount(), (l) => processLecture(l, signal), signal);
+    // Without a folder each video is held in memory until it finishes; two
+    // long lectures at once can exhaust the tab.
+    const limit = !outputDir && job.types.video ? 1 : parallelCount();
+    if (limit < parallelCount()) log("No output folder: downloading one lecture at a time to limit memory.");
+    await runWithConcurrency(lectures, limit, (l) => processLecture(l, signal), signal);
     lectures.forEach((lecture) =>
       kinds.forEach((kind) => {
         const cell = cells.get(`${lecture.classId}:${kind}`);

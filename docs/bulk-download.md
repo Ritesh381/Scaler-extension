@@ -95,7 +95,8 @@ render after navigation and **disconnects as soon as the bar is in**, or after 3
   are collected into one JSZip downloaded at the end, and each video/audio file is buffered in
   memory and downloaded on its own — a notice says so.
 - **Concurrency** — `runWithConcurrency(lectures, <Lectures at a time>, …)`; each lecture's chunk
-  downloads use the engine's 6 workers. Generated transcripts are serialised through one promise chain (one
+  downloads use the engine's 6 workers. Without a folder and with **Video** selected, it runs
+  **one lecture at a time**, since each video is held in memory until it finishes. Generated transcripts are serialised through one promise chain (one
   processor tab at a time).
 - **Transcripts** — slug from `/api/v2/classroom/{id}/meta` (memoised), `checkTranscriptCache`,
   then `fetchMetadataHeader()` + text into the folder; the version counts its download
@@ -113,6 +114,10 @@ render after navigation and **disconnects as soon as the bar is in**, or after 3
   permission covers, so the page fetches them itself. Relaying every chunk as a message through the
   subject tab (the proxy) capped throughput and made parallel downloads crawl; the proxy is now only
   the fallback, used for the rest of a download after the first direct fetch fails.
+  **Video + audio into a folder** downloads each part once: the video pass also writes the `.mp3`
+  from the same segments (the engine's `tee`). A part whose stream has a separate audio rendition,
+  or whose video failed, gets its own audio pass. Without a folder, audio is always a separate
+  download, from the lowest-bandwidth variant carrying audio.
 
 ### Shared pieces extracted in this change
 

@@ -175,8 +175,9 @@ startBtn.addEventListener("click", async () => {
       // Buffer in memory, then save via blob URL. Higher RAM use — only used
       // where the File System Access API is unavailable.
       log("Downloading to memory — save will start after download completes.");
-      const memBuffer = await engine.downloadToMemory(segments, audioExtractor);
-      const blob = new Blob([memBuffer], { type: mimeType });
+      // The engine hands back a Blob assembled from the chunks — no combined
+      // copy of the whole lecture on the JS heap.
+      const blob = await engine.downloadToMemory(segments, audioExtractor, mimeType);
 
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");

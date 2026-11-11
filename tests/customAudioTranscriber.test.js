@@ -151,3 +151,82 @@ test("resolveModel: a blank field resolves to the default the request will use",
   assert.equal(CAT.resolveModel("https://api.openai.com/v1/audio/transcriptions", undefined), "gpt-transcribe");
   assert.equal(CAT.resolveModel("https://my-custom-host/transcribe", ""), "gpt-transcribe");
 });
+
+// ── transcribeFromSegments: decode → upload streaming ─────────────────────
+
+/** 450 one-byte segments = 3 batches of ≤200; batch b decodes to two blobs. */
+function streamingFixture(CAT, { failBatch = -1 } = {}) {
+  const t = makeTranscriber(CAT);
+  let batchNo = 0;
+  t._prepareWavBlobs = async () => {
+    const b = batchNo++;
+    if (b === failBatch) throw new Error("bad audio");
+    return [
+      { blob: `b${b}-0`, peak: 0.5 },
+      { blob: `b${b}-1`, peak: 0.5 },
+    ];
+  };
+  // Later chunks answer faster, so out-of-order completion is exercised.
+  t._transcribeOpenAICompatible = async (blob) => {
+    const [b, i] = blob.slice(1).split("-").map(Number);
+    await new Promise((r) => setTimeout(r, (6 - (b * 2 + i)) * 3));
+    return `${blob}.`;
+  };
+  const segments = Array.from({ length: 450 }, () => new Uint8Array([1]));
+  return { t, segments };
+}
+
+test("transcribeFromSegments: streamed batches keep the text in order and free consumed segments", async () => {
+  const CAT = loadClass();
+  const { t, segments } = streamingFixture(CAT);
+  const progress = [];
+  const result = await t.transcribeFromSegments(segments, (pct, done, total) => progress.push([pct, done, total]));
+  assert.equal(result.text, "b0-0. b0-1. b1-0. b1-1. b2-0. b2-1.");
+  assert.equal(result.hasFailures, false);
+  assert.ok(segments.every((s) => s === null), "consumed segments released");
+  assert.deepEqual(Array.from(progress[progress.length - 1]), [100, 6, 6]);
+  assert.ok(progress.every(([pct]) => pct <= 100));
+});
+
+test("transcribeFromSegments: an undecodable stretch marks the result as having failures", async () => {
+  const CAT = loadClass();
+  // Batch 1 fails whole and in both halves (calls 1, 2, 3); batch 2 is call 4.
+  const t = makeTranscriber(CAT);
+  let call = 0;
+  t._prepareWavBlobs = async () => {
+    const c = call++;
+    if (c >= 1 && c <= 3) throw new Error("bad audio");
+    return [{ blob: `c${c}`, peak: 0.5 }];
+  };
+  t._transcribeOpenAICompatible = async (blob) => `${blob}.`;
+  const segments = Array.from({ length: 450 }, () => new Uint8Array([1]));
+  const result = await t.transcribeFromSegments(segments);
+  assert.equal(result.text, "c0. c4.");
+  assert.equal(result.hasFailures, true, "a gap must not be cached as complete");
+});
+
+test("transcribeFromSegments: an empty batch is a gap, not silently skipped", async () => {
+  const CAT = loadClass();
+  const t = makeTranscriber(CAT);
+  t._prepareWavBlobs = async () => [{ blob: "w", peak: 0.5 }];
+  t._transcribeOpenAICompatible = async () => "Hello.";
+  const segments = [
+    ...Array.from({ length: 200 }, () => new Uint8Array([1])),
+    ...Array.from({ length: 200 }, () => new Uint8Array(0)),
+  ];
+  const result = await t.transcribeFromSegments(segments);
+  assert.equal(result.hasFailures, true);
+});
+
+test("transcribeFromSegments: all-silent audio still throws without calling the model", async () => {
+  const CAT = loadClass();
+  const t = makeTranscriber(CAT);
+  t._prepareWavBlobs = async () => [{ blob: "w", peak: 0.0001 }];
+  let called = 0;
+  t._transcribeOpenAICompatible = async () => {
+    called++;
+    return "Thank you.";
+  };
+  await assert.rejects(() => t.transcribeFromSegments([new Uint8Array([1])]), /silent/i);
+  assert.equal(called, 0);
+});

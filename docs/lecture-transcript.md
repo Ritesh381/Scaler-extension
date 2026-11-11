@@ -178,7 +178,8 @@ tie-break to a brand-new upload. The backfill is idempotent — version ids are
 content-addressed, so re-running skips whatever is already promoted.
 
 A generated transcript is only uploaded when **no chunk failed** (`hasFailures === false`), so a
-partial transcript never poisons the cache.
+partial transcript never poisons the cache. Gaps count as failures too: any segment that could not
+be fetched (`fetchFailures > 0`), an empty batch, or audio that could not be decoded.
 
 ## Provider configuration (processor page)
 
@@ -242,17 +243,22 @@ Interpretation is deliberately conservative:
 
 ### Step 2 — Download the audio
 
-Same HLS pipeline as the video downloader (master playlist → media playlist → segments,
-6 concurrent workers with retries, `TSAudioExtractor` per chunk) — but `downloadSegments()`
-returns the **per-segment `Uint8Array`s in order**, never one giant combined buffer. A 3.5-hour
-lecture is 700+ segments; concatenating them first is what used to make the browser choke.
+`downloadPartAudio()` runs on the shared engine (`hlsDownloadEngine.js`, `type: "transcript"`,
+`directFirst: true`): direct fetch first, the source tab's `FETCH_PROXY` as the fallback. It also
+gets the engine's 12-chunk reorder window and 60 s per-chunk timeout. Without an audio rendition it
+reads the lowest-bandwidth variant carrying `mp4a`. It returns the **per-segment `Uint8Array`s in
+order**, never one giant combined buffer, plus `fetchFailures`. A 3.5-hour lecture is 700+
+segments; concatenating them first is what used to make the browser choke.
 
 ### Step 3 — Transcribe
 
 `CustomAudioTranscriber.transcribeFromSegments(segments, onProgress)`:
 
 1. **Batch** — combine `BATCH_SEGMENTS = 200` segments (~13 min of audio, ~10–30 MB) at a time.
-   If a batch fails to decode, it is **halved and each half retried independently**.
+   If a batch fails to decode, it is **halved and each half retried independently**. Decoding and
+   uploading are pipelined: each batch's WAV blobs go straight to the upload workers, with at most
+   **6** waiting, so the lecture's WAV audio is never all held at once. Consumed entries of the
+   input segments array are set to `null` as each batch is taken, so callers must not reuse it.
 2. **Decode** — `_prepareWavBlobs()` prefers the ADTS path (`_decodeAdtsInChunks`), decoding in
    bounded chunks through the Web Audio API. A non-ADTS buffer (e.g. MP3) is decoded directly only
    when it is under 8 MB — never a whole lecture.
@@ -266,7 +272,8 @@ lecture is 700+ segments; concatenating them first is what used to make the brow
    (`deepgram.com` → `_transcribeDeepgram`, `elevenlabs.io` → `_transcribeElevenLabs`, otherwise
    OpenAI-compatible with the model defaulting to `whisper-large-v3` on Groq, else `whisper-1`).
 6. **Retries** — 3 attempts per chunk with provider-aware backoff: a `429` waits **60 s** then
-   **4 min**; other errors use 2 s × attempt. Progress is reported after every chunk.
+   **4 min**; other errors use 2 s × attempt. Progress is reported after every chunk, against an
+   estimated total (extrapolated from segments consumed) until the last batch has decoded.
 7. **Stitch** — parts are joined in index order and passed through `_removeRepetitions()`, which
    collapses a phrase repeated more than `MAX_REPEATS = 2` times (a classic Whisper loop
    artefact).
