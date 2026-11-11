@@ -113,6 +113,35 @@ function setExportStatus(status) {
 /**
  * Injects the export dropdown button into the DOM
  */
+/**
+ * One document-level "click outside closes the menu" handler for every export
+ * button. Each button used to add its own and never remove it, so every
+ * problem visited left a listener (and its detached button) behind.
+ */
+function ensureExportOutsideClickHandler() {
+    if (window._scalerExportOutsideClick) return;
+    window._scalerExportOutsideClick = (e) => {
+        document.querySelectorAll("[data-assignment-export-injected]").forEach((wrapper) => {
+            if (wrapper.contains(e.target)) return;
+            const menu = wrapper.querySelector("[data-scaler-export-menu]");
+            if (menu) menu.style.display = "none";
+        });
+    };
+    document.addEventListener("click", window._scalerExportOutsideClick);
+}
+
+/** Remove what the export feature added to the page (toggle-off). */
+function teardownAssignmentExport() {
+    clearBulkExportAnimation();
+    if (window._scalerExportOutsideClick) {
+        document.removeEventListener("click", window._scalerExportOutsideClick);
+        window._scalerExportOutsideClick = null;
+    }
+    document
+        .querySelectorAll("[data-assignment-export-injected], .scaler-export-question")
+        .forEach((el) => el.remove());
+}
+
 function createExportButton(onExportCurrent, onExportAll) {
     let headingTextDiv = document.querySelector(".cr-p-heading__text") || 
                          document.querySelector('[class*="heading__text"]') || 
@@ -202,6 +231,7 @@ function createExportButton(onExportCurrent, onExportAll) {
     wrapper.appendChild(tooltip);
 
     const dropdownMenu = document.createElement("div");
+    dropdownMenu.setAttribute("data-scaler-export-menu", "");
     dropdownMenu.style.position = "absolute";
     dropdownMenu.style.top = "100%";
     dropdownMenu.style.right = "0";
@@ -286,18 +316,14 @@ function createExportButton(onExportCurrent, onExportAll) {
         if (wrapper.hasAttribute("data-exporting")) return;
         
         // Close any other open dropdowns globally
-        document.querySelectorAll("[data-assignment-export-injected] > div:nth-child(2)").forEach(menu => {
+        document.querySelectorAll("[data-scaler-export-menu]").forEach(menu => {
             if (menu !== dropdownMenu) menu.style.display = "none";
         });
         
         dropdownMenu.style.display = dropdownMenu.style.display === "none" ? "flex" : "none";
     });
 
-    document.addEventListener("click", (e) => {
-        if (!wrapper.contains(e.target)) {
-            closeDropdown();
-        }
-    });
+    ensureExportOutsideClickHandler();
     
     // Wrapper for exporting clicks to disable UI
     const handleExport = (callback, isBulk) => {

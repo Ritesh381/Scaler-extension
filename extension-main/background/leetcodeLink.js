@@ -152,7 +152,7 @@ async function searchViaGraphQL(title, statement) {
     filters: { searchKeywords: title },
   };
 
-  const response = await fetch(LEETCODE_GRAPHQL_URL, {
+  const response = await bgFetch(LEETCODE_GRAPHQL_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),
@@ -178,7 +178,7 @@ async function searchViaGoogle(title, statement) {
   const q = encodeURIComponent(`${title} site:leetcode.com/problems`);
   const searchUrl = `https://www.google.com/search?q=${q}`;
 
-  const response = await fetch(searchUrl);
+  const response = await bgFetch(searchUrl);
   if (!response.ok) throw new Error("Google Search Failed");
 
   const text = await response.text();
@@ -217,7 +217,7 @@ async function fetchQuestionDetail(slug) {
   `;
 
   try {
-    const response = await fetch(LEETCODE_GRAPHQL_URL, {
+    const response = await bgFetch(LEETCODE_GRAPHQL_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, variables: { titleSlug: slug } }),

@@ -64,7 +64,7 @@ async function _classroomBaseUrl() {
 async function _classroomFetch(path, body) {
   const base = await _classroomBaseUrl();
 
-  const res = await fetch(`${base}${path}`, {
+  const res = await bgFetch(`${base}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

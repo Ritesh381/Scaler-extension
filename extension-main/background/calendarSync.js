@@ -319,7 +319,7 @@ async function _calendarFetch(url, init, auth, isInteractive) {
     headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token}` },
   });
 
-  const res = await fetch(url, withAuth(auth.token));
+  const res = await bgFetch(url, withAuth(auth.token));
   if (res.status !== 401) return res;
 
   // Implicit web-flow tokens have no refresh path — nothing to retry with.
@@ -334,7 +334,7 @@ async function _calendarFetch(url, init, auth, isInteractive) {
   if (!fresh) return res; // hand the 401 back to the caller
 
   auth.token = fresh;
-  return fetch(url, withAuth(auth.token));
+  return bgFetch(url, withAuth(auth.token));
 }
 
 // ─── Core Sync ───────────────────────────────────────────────
@@ -370,7 +370,7 @@ async function performSync(isInteractive = false) {
     `https://www.scaler.com/academy/mentee/events/` +
     `?start_date=${startDate}&end_date=${endDate}&include_offline_events=true`;
 
-  const scalerRes = await fetch(scalerUrl, { credentials: "include" });
+  const scalerRes = await bgFetch(scalerUrl, { credentials: "include" });
   if (!scalerRes.ok) {
     throw new Error(
       `Scaler API error (HTTP ${scalerRes.status}). ` +

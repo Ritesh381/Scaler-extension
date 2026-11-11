@@ -149,14 +149,14 @@ async function generateSummaryViaLLM({ baseUrl, apiKey, model, transcript }) {
 
   let res;
   try {
-    res = await fetch(url, {
+    res = await bgFetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey.trim()}`,
       },
       body: JSON.stringify(body),
-    });
+    }, BG_LLM_FETCH_TIMEOUT_MS);
   } catch (e) {
     // Some providers reject the response_format param — retry once without it.
     throw new Error(`Request failed: ${e.message}`);
@@ -172,14 +172,14 @@ async function generateSummaryViaLLM({ baseUrl, apiKey, model, transcript }) {
     // Retry once without response_format for providers that don't support it.
     if (res.status === 400 && /response_format/i.test(detail)) {
       delete body.response_format;
-      res = await fetch(url, {
+      res = await bgFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify(body),
-      });
+      }, BG_LLM_FETCH_TIMEOUT_MS);
       if (!res.ok) {
         const t = await res.text().catch(() => "");
         throw new Error(`HTTP ${res.status}: ${t || detail}`);
@@ -198,7 +198,7 @@ async function generateSummaryViaLLM({ baseUrl, apiKey, model, transcript }) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Check summary cache ──────────────────────────────────────
   if (message.action === "checkSummaryCache") {
-    fetch(
+    bgFetch(
       `${SUMMARY_BACKEND_BASE_URL}/api/summary?slug=${encodeURIComponent(message.slug)}`,
       {
         method: "GET",
@@ -216,7 +216,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // ── Save summary to cache (first-write-wins on the backend) ──
   if (message.action === "saveSummary") {
-    fetch(`${SUMMARY_BACKEND_BASE_URL}/api/summary/save`, {
+    bgFetch(`${SUMMARY_BACKEND_BASE_URL}/api/summary/save`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

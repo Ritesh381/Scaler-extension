@@ -6,6 +6,7 @@
 // all their functions and listeners are immediately active.
 // ============================================================
 
+importScripts("./fetchTimeout.js"); // bgFetch: fetch with a timeout, used by the modules below
 importScripts("./companionBypass.js"); // Smart Companion Mode Bypass
 importScripts("../content/utils/stringUtils.js"); // Shared title/statement matching helpers
 importScripts("./leetcodeLink.js"); // LeetCode Problem Search & Verification

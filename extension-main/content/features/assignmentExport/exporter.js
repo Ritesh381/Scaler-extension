@@ -161,8 +161,9 @@ async function exportAllAssignments() {
             }
         };
         
-        // 5. Spawn workers (max concurrency: 6)
-        const maxConcurrency = Math.min(6, uniqueLinks.length);
+        // 5. Spawn workers. Each one boots a full hidden copy of the Scaler app
+        // (plus Monaco), so 3 at a time keeps memory reasonable on big assignments.
+        const maxConcurrency = Math.min(3, uniqueLinks.length);
         const workers = Array.from({ length: maxConcurrency }, () => worker());
         
         await Promise.all(workers);

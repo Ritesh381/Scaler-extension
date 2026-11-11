@@ -146,6 +146,7 @@ extension-main/
 ├── popup.html / popup.css / popup.js
 ├── background/
 │   ├── background.js        ← Service worker entry point (importScripts only)
+│   ├── fetchTimeout.js      ← bgFetch: fetch with a timeout, used by every module
 │   ├── companionBypass.js   ← Smart Companion Bypass logic
 │   ├── classroomProxy.js    ← Crowdsourced classroom tag API proxy
 │   ├── leetcodeLink.js      ← LeetCode search & verification

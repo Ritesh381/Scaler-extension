@@ -80,6 +80,8 @@ Concurrency 4 - Locks and Thread-Safe Programming/
 - **Concurrency Locks**: `isExporting` flag prevents users from triggering parallel bulk exports.
 - **Iframe Sandboxing**: Every iframe iteration is wrapped in a `Promise.race` timeout (10s) and a `try/catch`. If an iframe crashes due to CORS redirects or SPA failures, it is cleanly caught and the exporter proceeds to the next problem.
 - **Memory Leaks**: The bulk export is wrapped in a strict `try...finally` block that guarantees the invisible iframe is purged from the DOM even if a fatal exception occurs.
+- **Bulk concurrency**: at most 3 problems load at once. Each hidden iframe boots a full copy of the Scaler app plus Monaco, so more in parallel costs hundreds of MB.
+- **Listeners**: every export button shares one document click handler (`ensureExportOutsideClickHandler()`) that closes open menus on an outside click. Menus carry `data-scaler-export-menu`. `teardownAssignmentExport()` (toggle-off) removes the buttons and that handler and stops the "Exporting…" animation timer.
 
 ## Testing Strategy
 - **Unit Tests**: Pure functions like `markdown.js` are tested via Node's native test runner (`node:test`).
@@ -93,4 +95,3 @@ Concurrency 4 - Locks and Thread-Safe Programming/
 ## Future Improvements
 - Add a visual progress bar instead of updating the button text.
 - Add support for exporting hints or solution approaches.
-- Support parallel scraping (e.g. 2-3 iframes at once) for large assignments.

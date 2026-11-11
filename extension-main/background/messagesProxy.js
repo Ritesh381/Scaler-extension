@@ -21,7 +21,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ? `?email=${encodeURIComponent(message.email)}`
       : "";
 
-    fetch(`${BACKEND_BASE_URL}/api/messages/active${query}`)
+    bgFetch(`${BACKEND_BASE_URL}/api/messages/active${query}`)
       .then((res) => res.json())
       .then((data) => {
         sendResponse(data);
@@ -37,7 +37,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // ── Sync user profile to backend ─────────────────────────
   if (message.action === "syncUserProfile") {
-    fetch(`${BACKEND_BASE_URL}/api/messages/sync-user`, {
+    bgFetch(`${BACKEND_BASE_URL}/api/messages/sync-user`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(message.user),
@@ -57,7 +57,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Track download usage (video / audio / transcript) ────────
   // Fire-and-forget — increments the counter in Supabase.
   if (message.action === "trackDownload") {
-    fetch(`${BACKEND_BASE_URL}/api/users/download`, {
+    bgFetch(`${BACKEND_BASE_URL}/api/users/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -84,7 +84,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Track one-time message CTA clicks ─────────────────────
   // The content script reports only the first interaction per injected banner.
   if (message.action === "trackMessageClick") {
-    fetch(
+    bgFetch(
       `${BACKEND_BASE_URL}/api/messages/${encodeURIComponent(message.messageId || "")}/click`,
       { method: "POST" },
     ).catch(() => {
@@ -112,7 +112,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       fetchOptions.body = JSON.stringify(message.body);
     }
 
-    fetch(url, fetchOptions)
+    bgFetch(url, fetchOptions)
       .then((res) => res.json())
       .then((data) => {
         sendResponse({ success: true, data });
@@ -127,7 +127,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // ── Check transcript cache ───────────────────────────────────
   if (message.action === "checkTranscriptCache") {
-    fetch(`${BACKEND_BASE_URL}/api/transcript?slug=${encodeURIComponent(message.slug)}`, {
+    bgFetch(`${BACKEND_BASE_URL}/api/transcript?slug=${encodeURIComponent(message.slug)}`, {
       method: "GET",
       headers: { Authorization: "Bearer Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345" },
     })
@@ -152,7 +152,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const query = new URLSearchParams({ slug: message.slug || "" });
     if (message.email) query.set("email", message.email);
 
-    fetch(`${BACKEND_BASE_URL}/api/transcript/versions?${query.toString()}`, {
+    bgFetch(`${BACKEND_BASE_URL}/api/transcript/versions?${query.toString()}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${EXTENSION_TOKEN}` },
     })
@@ -167,7 +167,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "getTranscriptVersion") {
-    fetch(
+    bgFetch(
       `${BACKEND_BASE_URL}/api/transcript/version/${encodeURIComponent(message.versionId || "")}`,
       {
         method: "GET",
@@ -185,7 +185,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "recordVersionDownload") {
-    fetch(
+    bgFetch(
       `${BACKEND_BASE_URL}/api/transcript/version/${encodeURIComponent(message.versionId || "")}/download`,
       {
         method: "POST",
@@ -203,7 +203,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "voteTranscriptVersion") {
-    fetch(
+    bgFetch(
       `${BACKEND_BASE_URL}/api/transcript/version/${encodeURIComponent(message.versionId || "")}/vote`,
       {
         method: "POST",
@@ -240,7 +240,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // other backend write here (saveSummary, voteTranscriptVersion) already
   // holds the port the same way.
   if (message.action === "saveTranscriptToCache") {
-    fetch(`${BACKEND_BASE_URL}/api/transcript/save`, {
+    bgFetch(`${BACKEND_BASE_URL}/api/transcript/save`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
