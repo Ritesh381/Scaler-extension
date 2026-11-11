@@ -192,6 +192,8 @@ function versionsPageUrl() {
     classId: classId || "",
     sourceTabId: urlParams.get("sourceTabId") || "",
   });
+  // Without the parts, "Create a version" from there would transcribe Part 1 only.
+  if (urlParams.get("parts")) query.set("parts", urlParams.get("parts"));
   return `transcriptVersions.html?${query.toString()}`;
 }
 
@@ -605,6 +607,25 @@ const lectureSlug = urlParams.get("lectureSlug") || "";
 const classId = urlParams.get("classId") || "";
 const sourceTabId = parseInt(urlParams.get("sourceTabId"), 10);
 const cacheKey = lectureSlug || videoTitle;
+// What to transcribe: every part of a multi-part lecture (`parts`), or the
+// single stream in `url`.
+const streamParts = parseStreamParts(urlParams.get("parts"), m3u8Url);
+
+/**
+ * The streams to transcribe, in order: `parts` (JSON [{label, url}] from a
+ * multi-part lecture) when it is valid, else one unlabelled part for `url`.
+ */
+function parseStreamParts(rawParts, singleUrl) {
+  try {
+    const parts = JSON.parse(rawParts || "null");
+    if (Array.isArray(parts) && parts.length && parts.every((p) => p && typeof p.url === "string" && p.url)) {
+      return parts.map((p, i) => ({ label: String(p.label || `Part ${i + 1}`), url: p.url }));
+    }
+  } catch (_) {
+    /* malformed — fall back to the single stream */
+  }
+  return singleUrl ? [{ label: "", url: singleUrl }] : [];
+}
 
 const titleElem = document.getElementById("video-title");
 if (titleElem && videoTitle) {
@@ -618,13 +639,18 @@ if (cacheKey) {
   if (btnDivider) btnDivider.style.display = "flex";
 }
 
-if (!m3u8Url) {
+if (!streamParts.length) {
   log("Error: No M3U8 URL provided.");
   statusText.innerText = "Error: Invalid Stream Data";
   startBtn.disabled = true;
 } else {
   log("Mode: TRANSCRIPT");
-  log(`Stream: ${m3u8Url.substring(0, 60)}...`);
+  if (streamParts.length > 1) {
+    log(`Multi-part lecture: ${streamParts.length} parts, transcribed in order.`);
+  }
+  streamParts.forEach((part) => {
+    log(`Stream${part.label ? ` (${part.label})` : ""}: ${part.url.substring(0, 60)}...`);
+  });
 }
 
 // ── Cache Button: check cache and download instantly (no API key needed) ──
@@ -1151,6 +1177,46 @@ async function downloadSegments(segments, audioExtractor) {
   return audioSegments;
 }
 
+/**
+ * Download one stream's audio: playlist → segments → per-segment AAC.
+ * Returns the per-segment Uint8Arrays in order (see downloadSegments).
+ */
+async function downloadPartAudio(streamUrl) {
+  const masterText = await fetchText(streamUrl);
+  const mediaPlaylistUrl = getMediaPlaylistUrl(masterText, streamUrl);
+  const mediaText = await fetchText(mediaPlaylistUrl);
+  const segments = extractSegments(mediaText, mediaPlaylistUrl);
+
+  if (segments.length === 0) throw new Error("0 segments found.");
+
+  // TSAudioExtractor only understands MPEG-TS. These two tags mean the
+  // segments are a format it will silently return 0 bytes for, so surface it
+  // here rather than letting it look like a decode failure 400 chunks later.
+  if (/#EXT-X-MAP/.test(mediaText)) {
+    log("⚠ Playlist has EXT-X-MAP — fMP4 segments, TS demuxer will not work.");
+  }
+  if (/#EXT-X-KEY:(?!METHOD=NONE)/.test(mediaText)) {
+    log("⚠ Playlist encrypted (EXT-X-KEY) — decryption not implemented.");
+  }
+
+  const audioExtractor = new TSAudioExtractor();
+  // Download all segments as individual buffers (not one combined blob).
+  // This prevents the browser from choking on a single massive ArrayBuffer
+  // for long lectures (700+ segments / 3.5 hrs).
+  return downloadSegments(segments, audioExtractor);
+}
+
+/**
+ * One transcript for the whole lecture. A single part is returned as is; a
+ * multi-part lecture gets a "===== Part N =====" heading before each part.
+ */
+function joinPartTranscripts(parts, texts) {
+  if (parts.length === 1) return texts[0];
+  return parts
+    .map((part, i) => `===== ${part.label} =====\n\n${(texts[i] || "").trim()}`)
+    .join("\n\n");
+}
+
 function getSuggestedName(ext) {
   if (videoTitle) {
     const slug = videoTitle
@@ -1254,56 +1320,48 @@ startBtn.addEventListener("click", async () => {
     log("✅ API key validated successfully.");
     // ───────────────────────────────────────────────────────────
 
-    // ── STEP 2: Download audio ──────────────────────────────────
-    statusText.innerText = "Step 2/3: Downloading audio...";
-    const masterText = await fetchText(m3u8Url);
-    const mediaPlaylistUrl = getMediaPlaylistUrl(masterText, m3u8Url);
-    const mediaText = await fetchText(mediaPlaylistUrl);
-    const segments = extractSegments(mediaText, mediaPlaylistUrl);
-
-    if (segments.length === 0) throw new Error("0 segments found.");
-
-    // TSAudioExtractor only understands MPEG-TS. These two tags mean the
-    // segments are a format it will silently return 0 bytes for, so surface it
-    // here rather than letting it look like a decode failure 400 chunks later.
-    if (/#EXT-X-MAP/.test(mediaText)) {
-      log("⚠ Playlist has EXT-X-MAP — fMP4 segments, TS demuxer will not work.");
-    }
-    if (/#EXT-X-KEY:(?!METHOD=NONE)/.test(mediaText)) {
-      log("⚠ Playlist encrypted (EXT-X-KEY) — decryption not implemented.");
-    }
-
-    const audioExtractor = new TSAudioExtractor();
-    // Download all segments as individual buffers (not one combined blob).
-    // This prevents the browser from choking on a single massive ArrayBuffer
-    // for long lectures (700+ segments / 3.5 hrs).
-    const audioSegments = await downloadSegments(segments, audioExtractor);
-
-    progressBar.style.width = "0%";
-    chunksText.innerText = "—";
-    percentText.innerText = "0%";
-
-    statusText.innerText = "Step 3/3: Transcribing via your API...";
-
+    // ── STEPS 2+3, per part: download its audio, then transcribe it ──
+    // One part at a time, so only one part's audio is held in memory.
     const transcriber = new CustomAudioTranscriber(
       baseUrl,
       apiKey,
       modelName,
       log,
     );
-
     const startTime = Date.now();
-    const transcribeResult = await transcriber.transcribeFromSegments(
-      audioSegments,
-      (pct, current, total) => {
-        progressBar.style.width = pct.toFixed(1) + "%";
-        chunksText.innerText = `${current} / ${total} segments`;
-        percentText.innerText = `${pct.toFixed(1)}%`;
-      },
-    );
+    const partTexts = [];
+    let hasFailures = false;
 
-    const transcript = transcribeResult.text;
-    const hasFailures = transcribeResult.hasFailures;
+    for (let i = 0; i < streamParts.length; i++) {
+      const part = streamParts[i];
+      const partTag =
+        streamParts.length > 1 ? ` — ${part.label} (${i + 1}/${streamParts.length})` : "";
+
+      statusText.innerText = `Step 2/3: Downloading audio${partTag}...`;
+      const audioSegments = await downloadPartAudio(part.url);
+
+      progressBar.style.width = "0%";
+      chunksText.innerText = "—";
+      percentText.innerText = "0%";
+
+      statusText.innerText = `Step 3/3: Transcribing via your API${partTag}...`;
+      const partResult = await transcriber.transcribeFromSegments(
+        audioSegments,
+        (pct, current, total) => {
+          progressBar.style.width = pct.toFixed(1) + "%";
+          chunksText.innerText = `${current} / ${total} segments`;
+          percentText.innerText = `${pct.toFixed(1)}%`;
+        },
+      );
+      // An empty part would be cached as if the lecture had no speech there.
+      if (streamParts.length > 1 && !(partResult.text || "").trim()) {
+        throw new Error(`${part.label} produced no text. Audio may be silent or unsupported.`);
+      }
+      partTexts.push(partResult.text);
+      hasFailures = hasFailures || partResult.hasFailures;
+    }
+
+    const transcript = joinPartTranscripts(streamParts, partTexts);
 
     if (!transcript || transcript.trim().length === 0) {
       throw new Error(

@@ -18,6 +18,9 @@ const lectureTitle = params.get("title") || "";
 const lectureSlug = params.get("lectureSlug") || "";
 const classId = params.get("classId") || "";
 const sourceTabId = params.get("sourceTabId") || "";
+// Multi-part lectures: every part's stream as JSON [{label, url}], passed
+// through untouched to the processor, which transcribes all of them.
+const streamParts = params.get("parts") || "";
 
 const els = {
   lectureName: document.getElementById("lecture-name"),
@@ -171,6 +174,7 @@ function openProcessor() {
     classId,
     sourceTabId,
   });
+  if (streamParts) query.set("parts", streamParts);
   window.location.href = `transcriptProcessor.html?${query.toString()}`;
 }
 

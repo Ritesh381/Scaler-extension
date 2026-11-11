@@ -48,7 +48,7 @@ extension-main/            the actual extension — everything shipped lives her
     cleaner/               selectors.js (DEFAULT_SETTINGS + selector map), cleanerEngine.js,
                            modalHandler.js, sidebarHandler.js
     features/              one file or one folder per feature
-    utils/                 domUtils.js, stringUtils.js, assignmentParser.js
+    utils/                 domUtils.js, stringUtils.js, assignmentParser.js, hlsPlaylist.js
   libs/                    vendored third-party (jszip, agora-sdk) — no CDNs allowed in MV3
   assets/ fonts/ icons/
 tests/                     node:test + jsdom unit tests, one file per module

@@ -282,9 +282,10 @@ class VideoDownloader {
       menu.style.display = "none";
     };
 
-    menu.appendChild(audioOption);
-    menu.appendChild(videoOption);
-    menu.appendChild(transcriptOption);
+    // Kept so the part picker (multi-part lectures) can swap the menu's
+    // contents and put these back afterwards.
+    this._menuOptions = [audioOption, videoOption, transcriptOption];
+    menu.append(...this._menuOptions);
 
     container.appendChild(button);
     container.appendChild(menu);
@@ -292,7 +293,9 @@ class VideoDownloader {
     // Toggle Menu
     button.onclick = (e) => {
       e.stopPropagation();
-      menu.style.display = menu.style.display === "none" ? "block" : "none";
+      const opening = menu.style.display === "none";
+      if (opening) this._restoreMenu(menu);
+      menu.style.display = opening ? "block" : "none";
     };
 
     // ── Fix #2: remove stale outside-click handler before adding a new one ──
@@ -301,11 +304,18 @@ class VideoDownloader {
     }
     this._outsideClickHandler = () => {
       menu.style.display = "none";
+      this._restoreMenu(menu);
     };
     document.addEventListener("click", this._outsideClickHandler);
 
     // Insert before the original first action (usually leaderboard trophy icon)
     headerActions.insertBefore(container, headerActions.firstChild);
+  }
+
+  _restoreMenu(menu) {
+    if (this._menuOptions && menu.firstChild !== this._menuOptions[0]) {
+      menu.replaceChildren(...this._menuOptions);
+    }
   }
 
   styleOption(opt) {
@@ -377,6 +387,36 @@ class VideoDownloader {
       );
     }
     
+    const match = window.location.pathname.match(/\/class\/(\d+)/);
+    const classId = match ? match[1] : "";
+
+    // A multi-part lecture streams each part separately, and the URL captured
+    // on this page is only the part that happened to play. Find every part's
+    // stream in a background capture tab (playlistCapture.js).
+    if (lectureHasPlaylist()) {
+      btn.title = "Finding this lecture's parts…";
+      const result = await this._captureParts(classId);
+      btn.innerHTML = originalIcon;
+      btn.title = "Download Recording";
+      if (!result.ok) {
+        alert(`⚠️ Couldn't find this lecture's parts.\n\n${result.error}`);
+        return;
+      }
+      const parts = (result.parts || []).map((part, i) => ({
+        ...part,
+        label: part.label || `Part ${i + 1}`,
+      }));
+      if (parts.length > 1) {
+        this._downloadParts(type, parts, classId);
+        return;
+      }
+      if (parts[0] && parts[0].url) {
+        this._initiateDownload({ url: parts[0].url, type, classId });
+        return;
+      }
+      // Nothing usable from the capture tab — fall back to this page's stream.
+    }
+
     chrome.runtime.sendMessage({ type: "GET_VIDEO_URL" }, (response) => {
       // Must check lastError first — if the background SW is inactive,
       // Chrome sets this and throws if we don't read it.
@@ -401,31 +441,139 @@ class VideoDownloader {
         return;
       }
 
-      const match = window.location.pathname.match(/\/class\/(\d+)/);
-      const classId = match ? match[1] : "";
+      this._initiateDownload({ url: response.url, type, classId });
+    });
+  }
 
+  /**
+   * Hand one download to the service worker, which opens its processor tab.
+   * `parts` ([{label, url}]) is only sent for a multi-part transcript.
+   */
+  _initiateDownload({ url, type, classId, title = document.title || "", parts }) {
+    chrome.runtime.sendMessage(
+      {
+        type: "INITIATE_DOWNLOAD",
+        payload: {
+          url,
+          type,
+          title,
+          lectureSlug: this._lectureSlug || "",
+          classId,
+          ...(parts ? { parts } : {}),
+        },
+      },
+      () => {
+        // Consume any potential lastError from this message too
+        if (chrome.runtime.lastError) {
+          console.warn(
+            "[Scaler++] INITIATE_DOWNLOAD error:",
+            chrome.runtime.lastError.message,
+          );
+        }
+      },
+    );
+  }
+
+  /**
+   * Ask the service worker for every part's stream (a capture tab).
+   * Resolves { ok, parts: [{label, minutes, url}] } or { ok: false, error }.
+   */
+  _captureParts(classId) {
+    return new Promise((resolve) => {
       chrome.runtime.sendMessage(
         {
-          type: "INITIATE_DOWNLOAD",
-          payload: {
-            url: response.url,
-            type: type,
-            title: document.title || "",
-            lectureSlug: this._lectureSlug || "",
-            classId: classId,
-          },
+          type: "CAPTURE_LECTURE_STREAMS",
+          lectureUrl: window.location.href,
+          lectureKey: classId || window.location.pathname,
         },
-        () => {
-          // Consume any potential lastError from this message too
-          if (chrome.runtime.lastError) {
-            console.warn(
-              "[Scaler++] INITIATE_DOWNLOAD error:",
-              chrome.runtime.lastError.message,
-            );
+        (response) => {
+          if (chrome.runtime.lastError || !response) {
+            resolve({
+              ok: false,
+              error: chrome.runtime.lastError?.message || "The extension background didn't answer.",
+            });
+          } else {
+            resolve(response);
           }
         },
       );
     });
+  }
+
+  /**
+   * A transcript covers every part, or nothing: a transcript missing a part
+   * would be cached as the whole lecture's. Audio/video let the user pick.
+   */
+  _downloadParts(type, parts, classId) {
+    if (type !== "transcript") {
+      this._showPartPicker(type, parts, classId);
+      return;
+    }
+    const missing = parts.filter((part) => !part.url);
+    if (missing.length) {
+      alert(
+        `⚠️ Couldn't find the stream for ${missing.map((p) => p.label).join(", ")}.\n\n` +
+          "A transcript has to cover every part, so it wasn't started. Try again in a moment.",
+      );
+      return;
+    }
+    this._initiateDownload({
+      url: parts[0].url,
+      type,
+      classId,
+      parts: parts.map(({ label, url }) => ({ label, url })),
+    });
+  }
+
+  /**
+   * Swap the download menu's contents for a part picker: each part, plus
+   * "All parts". Each chosen part opens its own processor tab. The normal
+   * menu comes back whenever the menu closes (_restoreMenu).
+   */
+  _showPartPicker(type, parts, classId) {
+    const menu = document.querySelector("#scaler-video-downloader .downloader-menu");
+    if (!menu) return;
+    const title = document.title || "";
+    const start = (chosen) => {
+      menu.style.display = "none";
+      this._restoreMenu(menu);
+      chosen.forEach((part) =>
+        this._initiateDownload({ url: part.url, type, classId, title: `${title} – ${part.label}` }),
+      );
+    };
+
+    const header = document.createElement("div");
+    header.innerText = `${type === "audio" ? "Audio" : "Video"} — choose a part`;
+    header.style.cssText =
+      "padding:6px 16px 8px;color:#a1a1aa;font-size:12px;font-family:Inter, sans-serif;cursor:default;";
+
+    const options = parts.map((part) => {
+      const opt = document.createElement("div");
+      opt.innerText = part.minutes ? `${part.label} · ${part.minutes} min` : part.label;
+      this.styleOption(opt);
+      if (part.url) {
+        opt.onclick = () => start([part]);
+      } else {
+        opt.style.opacity = "0.5";
+        opt.style.cursor = "not-allowed";
+        opt.title = "This part's stream wasn't found — try again in a moment.";
+      }
+      return opt;
+    });
+
+    const available = parts.filter((part) => part.url);
+    const all = document.createElement("div");
+    all.innerText = `All parts (${available.length} files)`;
+    this.styleOption(all);
+    if (available.length) {
+      all.onclick = () => start(available);
+    } else {
+      all.style.opacity = "0.5";
+      all.style.cursor = "not-allowed";
+    }
+
+    menu.replaceChildren(header, ...options, all);
+    menu.style.display = "block";
   }
 }
 

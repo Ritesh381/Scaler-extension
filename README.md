@@ -118,7 +118,7 @@ The **Midnight** theme ports the look of [refact0r/midnight-discord](https://git
 
 - ✅ **Instant Apply** - Settings take effect immediately without a page reload.
 - ✅ **Smart Bypass** - Companion mode bypassed on-demand with zero permanent overhead.
-- ✅ **Lecture Downloads** - Download 2-hour recordings as lightweight audio, full video, or fully local AI transcripts.
+- ✅ **Lecture Downloads** - Download 2-hour recordings as lightweight audio, full video, or fully local AI transcripts — including lectures split into parts (pick a part or all of them; transcripts always cover every part).
 - ✅ **Smart Caching** - LeetCode links load instantly on revisits (20-50× faster).
 - ✅ **Lightweight & Fast** - Native performance with no external dependencies.
 - ✅ **Privacy Centric** - No data collection; works entirely via local storage.
@@ -155,6 +155,7 @@ extension-main/
     ├── features/
     │   ├── videoDownloader/  ← Lecture download & transcript module
     │   │   ├── videoDownloader.js    ← Button injection & recording detection
+    │   │   ├── playlistCapture.js    ← Multi-part lectures: playlist parsing + capture tabs
     │   │   ├── videoProcessor.html   ← Download progress UI
     │   │   ├── videoProcessor.js     ← Concurrent HLS downloader engine
     │   │   ├── transcriptProcessor.html ← Dedicated transcription UI
@@ -174,7 +175,7 @@ extension-main/
     │   ├── themeManager.js   ← Site-wide Dark Mode & theme engine (root-filter recipes)
     │   ├── problemSearch, practiceMode, leetcodeLink, spotlightSearch,
     │   │   joinClassButton, companionBypass, subjectSort, contestLeaderboard
-    └── utils/               ← domUtils, stringUtils
+    └── utils/               ← domUtils, stringUtils, assignmentParser, hlsPlaylist
 
 tests/                       ← jsdom + node:test suite for content features (see tests/README.md)
 ```

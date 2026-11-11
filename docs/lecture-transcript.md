@@ -266,6 +266,24 @@ lecture is 700+ segments; concatenating them first is what used to make the brow
    collapses a phrase repeated more than `MAX_REPEATS = 2` times (a classic Whisper loop
    artefact).
 
+## Multi-part lectures
+
+A recording split into parts streams each part separately (see
+[video-downloader.md → Multi-part lectures](video-downloader.md#multi-part-lectures-playlists)
+for how every part's stream is found). For a transcript the downloader passes all of them as
+`parts=[{label, url}]` (JSON) to the versions page, which carries it to the processor; the
+processor's link back to the versions page keeps it too, or "Create a version" from there would
+transcribe Part 1 only.
+
+`transcriptProcessor.js` reads them with `parseStreamParts()` (malformed or missing → the single
+`url`, as before) and runs steps 2 and 3 **once per part, in order** — download a part's audio,
+transcribe it, then the next — so only one part's audio is held in memory. A part that comes back
+empty fails the run, and `joinPartTranscripts()` puts a `===== Part N =====` heading before each
+part's text. The result is cached as one version, like any other transcript.
+
+The downloader refuses to start a transcript when any part's stream is missing: a transcript
+without a part would be cached as the whole lecture's.
+
 ## Output
 
 `fetchMetadataHeader(classId, attribution)` fetches `/api/v2/classroom/{id}/session` and `/meta` in
