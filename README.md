@@ -90,7 +90,7 @@ Press **`Alt + /`** (Option + / on Mac) or click the **Search** button in the Sc
 
 ## 🎨 Dark Mode & Elegant Themes
 
-Recolor the **entire Scaler website** with a single click. Open the popup → **Appearance** → pick a theme: **Dark**, **Midnight**, **Dracula**, **Nord**, **Warm Sepia**, or **Solarized** (or **Light / Off** for the native look). Themes apply instantly, sync across your devices, and keep images, videos and the sticky header working correctly.
+Recolor the **entire Scaler website** with a single click. Open the popup → **Appearance** → pick a theme: **Dark**, **Midnight**, **Dracula**, **Nord**, **Warm Sepia**, or **Solarized** (or **Light / Off** for the native look). Themes apply instantly, sync across your devices, and keep images, videos and the sticky header working correctly. While a lecture recording is on screen, the theme steps around the player, so the video always shows its true colours — fullscreen or not — while the chat, playlist and notes panels stay themed.
 
 The **Midnight** theme ports the look of [refact0r/midnight-discord](https://github.com/refact0r/midnight-discord) — its blue-gray darkness, its **Figtree** font (bundled, [SIL OFL 1.1](extension-main/fonts/Figtree-OFL.txt)) and its rounded corners.
 

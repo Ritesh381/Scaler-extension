@@ -426,3 +426,155 @@ test("an explicit 'off' choice still wins over the dark default", async () => {
     "explicit off respected — no invert applied",
   );
 });
+
+// ── Video-scoped mode ────────────────────────────────────────────────────────
+// A root invert+hue-rotate clamps saturated colours (pure red can't come back
+// out of it), so a lecture-sized <video> must not sit under any filter at all.
+
+const SCOPED_CLASS = "scaler-theme-scoped";
+
+// The lecture page in miniature: a light dashboard shell under a dark overlay
+// holding the player, a white chat panel (with a dark button) and a dark rail.
+const PLAYER_HTML = `<!DOCTYPE html><html><body style="background-color: rgb(255, 255, 255)">
+  <div id="shell">Dashboard</div>
+  <div id="overlay" style="background-color: rgb(18, 18, 18)">
+    <div id="topbar" style="background-color: rgb(31, 31, 31)">Lecture</div>
+    <div id="main">
+      <div id="player" style="background-color: rgb(0, 0, 0)">
+        <video id="v"></video>
+        <img id="thumb" src="x.png">
+        <div id="controls">00:00 / 00:00</div>
+        <div id="playlist" style="background-color: rgb(255, 255, 255)">Part 1</div>
+      </div>
+      <div id="chat" style="background-color: rgb(255, 255, 255)">
+        <div id="notice" style="background-color: rgb(30, 42, 74)">Notice Board</div>
+      </div>
+      <div id="rail" style="background-color: rgb(43, 43, 43)"></div>
+    </div>
+  </div>
+</body></html>`;
+
+// jsdom has no layout: give the video the box a real player would have.
+function sizeVideo(window, w, h) {
+  const v = window.document.getElementById("v");
+  Object.defineProperty(v, "offsetWidth", { configurable: true, value: w });
+  Object.defineProperty(v, "offsetHeight", { configurable: true, value: h });
+  return v;
+}
+
+const themed = (window, id) =>
+  window.document.getElementById(id).hasAttribute("data-scaler-themed");
+
+test("scoped CSS is emitted AFTER the unchanged root-mode rules", () => {
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("dark");
+  const css = window.document.getElementById(STYLE_ID).textContent;
+
+  const rootMedia = css.indexOf("html.scaler-theme-active img,");
+  const scopedFilter = css.search(
+    /html\.scaler-theme-scoped \.scaler-themed \{\s*filter:\s*invert\(1\) hue-rotate\(180deg\)/,
+  );
+  const scopedMedia = css.indexOf("html.scaler-theme-scoped .scaler-themed img,");
+  assert.ok(rootMedia !== -1, "root media counter still present");
+  assert.ok(scopedFilter !== -1, "themed subtrees carry the theme filter");
+  assert.ok(scopedMedia !== -1, "media inside a themed subtree is counter-inverted");
+  assert.ok(scopedMedia > rootMedia, "root rules come first (existing tests anchor on them)");
+  assert.match(css, /html\.scaler-theme-scoped \{\s*background-color:\s*rgb\(0, 0, 0\)/, "root painted with the themed bg");
+});
+
+test("a lecture-sized video switches the page to scoped mode, never filtering its ancestors", () => {
+  const { window } = loadFeature(THEME_FILE, { html: PLAYER_HTML });
+  const video = sizeVideo(window, 640, 360);
+  window.applyTheme("dark");
+
+  const root = window.document.documentElement;
+  assert.ok(root.classList.contains(SCOPED_CLASS), "scoped mode on");
+  assert.ok(!root.classList.contains(ROOT_CLASS), "root filter OFF");
+  for (let el = video; el && el !== root; el = el.parentElement) {
+    assert.ok(!el.hasAttribute("data-scaler-themed"), `${el.id || el.tagName} on the video path is not filtered`);
+  }
+});
+
+test("scoped mode themes light panels, keeps dark chrome and media native", () => {
+  const { window } = loadFeature(THEME_FILE, { html: PLAYER_HTML });
+  sizeVideo(window, 640, 360);
+  window.applyTheme("dark");
+
+  assert.ok(themed(window, "shell"), "light shell themed");
+  assert.ok(themed(window, "chat"), "white chat panel themed");
+  assert.ok(themed(window, "playlist"), "white playlist panel inside the black player themed");
+  assert.ok(!themed(window, "topbar"), "dark top bar left native");
+  assert.ok(!themed(window, "rail"), "dark icon rail left native");
+  assert.ok(!themed(window, "controls"), "transparent controls over the black player left native");
+  assert.ok(!themed(window, "thumb"), "media never carries the filter");
+  assert.ok(
+    window.document.getElementById("notice").classList.contains("scaler-no-invert"),
+    "dark button inside a themed panel keeps its counter",
+  );
+});
+
+test("a light video ancestor is recoloured inline and restored on teardown", () => {
+  const { window } = loadFeature(THEME_FILE, { html: PLAYER_HTML });
+  sizeVideo(window, 640, 360);
+  const body = window.document.body;
+  window.applyTheme("dark");
+
+  assert.ok(body.hasAttribute("data-scaler-video-path"), "body tagged as a recoloured path element");
+  assert.equal(body.style.backgroundColor, "rgb(0, 0, 0)", "white body painted as Dark renders white");
+  assert.equal(window.pageIsDark(), false, "our own recolour never reads back as a dark page");
+
+  window.applyTheme("off");
+  assert.equal(body.style.backgroundColor, "rgb(255, 255, 255)", "original inline background restored");
+  assert.ok(!body.hasAttribute("data-scaler-video-path"), "path tag removed");
+  assert.equal(window.document.querySelectorAll("[data-scaler-themed]").length, 0, "no themed subtrees left");
+  assert.ok(!window.document.documentElement.classList.contains(SCOPED_CLASS), "scoped class removed");
+});
+
+test("a small video keeps the page on the root filter", () => {
+  const { window } = loadFeature(THEME_FILE, { html: PLAYER_HTML });
+  sizeVideo(window, 200, 112);
+  window.applyTheme("dark");
+
+  const root = window.document.documentElement;
+  assert.ok(root.classList.contains(ROOT_CLASS), "root mode");
+  assert.ok(!root.classList.contains(SCOPED_CLASS), "not scoped");
+  assert.equal(window.document.querySelectorAll("[data-scaler-themed]").length, 0);
+});
+
+test("leaving scoped mode for root mode clears scoped flags first", () => {
+  const { window } = loadFeature(THEME_FILE, { html: PLAYER_HTML });
+  sizeVideo(window, 640, 360);
+  window.applyTheme("dark");
+  assert.ok(themed(window, "chat"));
+
+  sizeVideo(window, 0, 0); // player hidden / navigated away
+  window.evaluateAndRender();
+
+  const root = window.document.documentElement;
+  assert.ok(root.classList.contains(ROOT_CLASS), "back on the root filter");
+  assert.equal(window.document.querySelectorAll("[data-scaler-themed]").length, 0, "themed flags cleared");
+  assert.equal(window.document.body.style.backgroundColor, "rgb(255, 255, 255)", "body background restored");
+  assert.ok(
+    window.document.getElementById("overlay").classList.contains("scaler-no-invert"),
+    "root-mode dark-region scan ran from scratch",
+  );
+  assert.ok(
+    !window.document.getElementById("notice").classList.contains("scaler-no-invert"),
+    "no scoped-era flag left nested inside a root-mode region (would double-flip)",
+  );
+});
+
+test("applyFilterToRgb matches what Chromium renders", () => {
+  // Expected values measured from Chromium screenshots of the same filters.
+  const { window } = loadFeature(THEME_FILE);
+  const t = window.SCALER_THEMES;
+  const rgb = (c) => [c.r, c.g, c.b];
+  const white = { r: 255, g: 255, b: 255 };
+  assert.deepEqual(rgb(window.applyFilterToRgb(t.dark.filter, white)), [0, 0, 0]);
+  assert.deepEqual(rgb(window.applyFilterToRgb(t.dark.filter, { r: 255, g: 0, b: 0 })), [255, 146, 146]);
+  assert.deepEqual(rgb(window.applyFilterToRgb(t.midnight.filter, white)), [24, 24, 25]);
+  assert.deepEqual(rgb(window.applyFilterToRgb(t.sepia.filter, { r: 128, g: 128, b: 128 })), [142, 136, 124]);
+  // Functions apply in order.
+  assert.deepEqual(rgb(window.applyFilterToRgb("invert(1) brightness(0.5)", white)), [0, 0, 0]);
+  assert.deepEqual(rgb(window.applyFilterToRgb("brightness(0.4) invert(1)", white)), [153, 153, 153]);
+});
