@@ -245,6 +245,70 @@
       transform: none;
     }
 
+    /* Same-model prompt (promptUseCached in transcriptProcessor.js) */
+    #cache-dialog {
+      /* The page reset zeroes margins; a modal dialog centres itself via auto. */
+      margin: auto;
+      background: #1c1d27;
+      color: #e4e4e7;
+      border: 1px solid #27272a;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 440px;
+      width: calc(100% - 32px);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    #cache-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.6);
+    }
+
+    #cache-dialog h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    #cache-dialog .cache-dialog-meta {
+      margin: 0 0 6px;
+      font-size: 13px;
+      color: #a1a1aa;
+    }
+
+    #cache-dialog .cache-dialog-note {
+      margin: 0 0 20px;
+      font-size: 14px;
+      color: #d4d4d8;
+      line-height: 1.5;
+    }
+
+    #cache-dialog form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    #cache-use-btn {
+      background: linear-gradient(135deg, #059669, #10b981);
+    }
+
+    #cache-use-btn:hover {
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+    }
+
+    #cache-dialog .btn-secondary {
+      background: #18181b;
+      border: 1px solid #27272a;
+      color: #a1a1aa;
+      font-size: 13px;
+      padding: 11px 20px;
+    }
+
+    #cache-dialog .btn-secondary:hover {
+      box-shadow: none;
+      color: #e4e4e7;
+    }
+
     /* Cache button — secondary green style */
     #cache-btn {
       background: linear-gradient(135deg, #059669, #10b981);
@@ -389,8 +453,23 @@
     <div class="logs" id="logs">[System] Waiting for user to configure and start...</div>
   </div>
 
+  <dialog id="cache-dialog" aria-labelledby="cache-dialog-title">
+    <h2 id="cache-dialog-title">Already transcribed with <span id="cache-dialog-model"></span></h2>
+    <p class="cache-dialog-meta" id="cache-dialog-meta"></p>
+    <p class="cache-dialog-note">
+      This lecture already has a transcript made with the same model. Using it is
+      instant and doesn't spend your API credits.
+    </p>
+    <form method="dialog">
+      <button id="cache-use-btn" value="cached">⚡ Download cached transcript</button>
+      <button class="btn-secondary" value="versions">See all versions</button>
+      <button class="btn-secondary" value="generate">Transcribe anyway</button>
+    </form>
+  </dialog>
+
   <script src="tsAudioExtractor.js"></script>
   <script src="customAudioTranscriber.js"></script>
+  <script src="transcriptRanking.js"></script>
   <script src="transcriptProcessor.js"></script>
 </body>
 

@@ -30,17 +30,42 @@ The save runs **in the service worker**, deliberately: the processor tab is ofte
 after the download triggers, and a fire-and-forget POST from a dying page context would be
 aborted. The worker outlives the tab.
 
-Two entry points hit the cache:
+Two places read the cache:
 
-- **From the Scaler page** — the downloader menu offers two separate transcript items instead of
-  one, so the choice is made *before* anything runs and no dialog ever interrupts:
-  - **Transcript Cache ⚡** — `startDownload("transcript", { useCache: true })` checks the cache
-    first. On a hit it prepends the metadata header and downloads immediately — no API key
-    involved. On a miss it falls through to opening the processor tab.
-  - **Transcript New** — `startDownload("transcript", { useCache: false })` skips the cache lookup
-    entirely and goes straight to the processor tab.
-- **On the processor page** — a "Download Cached Transcript" button is shown whenever a lookup key
-  exists, so the cache can be used without configuring anything.
+- **The versions page** — where the menu's **Transcript** item always lands (see
+  [Extension entry points](#extension-entry-points)). It lists every version and downloads any of
+  them without an API key.
+- **The processor page** — before a run spends anything, the
+  [same-model prompt](#same-model-prompt) offers an existing version made with the same model.
+  (The old "Download Cached Transcript" button on this page is commented out in the HTML; its
+  handler in `transcriptProcessor.js` is dead code.)
+
+## Same-model prompt
+
+Transcribing the same lecture with the same model again costs the user API credits and time for
+a result the cache already holds. So when **Start Transcription** is pressed, after the inputs are
+validated and before the API-key check or any audio download:
+
+1. `CustomAudioTranscriber.resolveModel(baseUrl, modelName)` gives the model that will actually
+   run — the typed one, or the provider default when the field is blank (`whisper-large-v3-turbo`
+   on Groq, `nova-3`, `scribe_v2`, otherwise `gpt-transcribe`). The transcriber uses the same
+   method for its requests, so the two can't disagree.
+2. `findCachedSameModel()` sends `getTranscriptVersions` and keeps the versions whose `model`
+   matches, trimmed and case-insensitive (`findSameModelVersions` in
+   [transcriptRanking.js](../extension-main/content/features/videoDownloader/transcriptRanking.js)).
+   A version with no recorded model never matches. The best match is picked with the versions
+   page's own ranking (`rankTranscriptVersions`, now shared). The lookup gives up after **5 s** —
+   it can never block a run.
+3. On a match a native `<dialog>` shows the model, provider, age, downloads and net votes:
+   - **Download cached transcript** — the versions page's download path: fetch the text,
+     prepend the metadata header, save, then `recordVersionDownload`; `trackDownload` carries the
+     `versionId` so the backend doesn't count it again.
+   - **See all versions** — opens the versions page.
+   - **Transcribe anyway** — the run continues as before.
+   - **Esc** — cancels the run; nothing is spent.
+
+Generated versions are now saved with the **resolved** model instead of the raw field, which used
+to be blank whenever the user kept the default — those versions could never be matched.
 
 ## Versions
 
@@ -85,9 +110,13 @@ someone, and each guarded so the same download is never counted twice:
 
 | Path | Counted by | Guard |
 |---|---|---|
-| **Download** on a version | `POST /version/:id/download` | — |
+| **Download** on a version, or **Download cached transcript** in the same-model prompt | `POST /version/:id/download` | — |
 | **Generating** a version | `POST /save` with `countDownload: true` | the processor writes the `.txt` first, so a brand-new version starts at 1, not 0 |
 | **Older builds** taking whatever `GET /api/transcript` served | `POST /api/users/download` | only when the report carries **no** `versionId` and `source !== "generated"` |
+
+The extension's `trackDownload` handler (`messagesProxy.js`) forwards `versionId` to
+`/api/users/download`. It used to drop it, so every versions-page download was reported as an
+"older build" download and the best-ranked version was bumped a second time.
 
 Counting the plain `GET` itself is **not** an option: `lectureSummary.js` hits the same endpoint
 just to ask "does a transcript exist?", and that probe fires every time the summary panel opens.

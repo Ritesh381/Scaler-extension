@@ -17,6 +17,20 @@ class CustomAudioTranscriber {
     this.silencePeakThreshold = 0.01;
   }
 
+  /**
+   * The model a run actually uses: the one typed in, or the provider's default
+   * when the field is blank. Decided from the base URL, exactly like the
+   * request dispatch, so the cache can record (and match on) what really ran.
+   */
+  static resolveModel(baseUrl, modelName) {
+    const typed = (modelName || "").trim();
+    if (typed) return typed;
+    const url = (baseUrl || "").trim();
+    if (url.includes("deepgram.com")) return "nova-3";
+    if (url.includes("elevenlabs.io")) return "scribe_v2";
+    return url.includes("groq.com") ? "whisper-large-v3-turbo" : "gpt-transcribe";
+  }
+
   // ── Helper: Remove Repetitions ──
   _removeRepetitions(text) {
     if (!text || text.length < 20) return text;
@@ -148,14 +162,13 @@ class CustomAudioTranscriber {
 
   // ── Shared transcription worker (operates on prepared WAV blobs) ────────
   async _transcribeWavBlobs(wavBlobs, onProgress) {
-    const isGroq = this.baseUrl.includes("groq.com");
     const isDeepgram = this.baseUrl.includes("deepgram.com");
     const isElevenLabs = this.baseUrl.includes("elevenlabs.io");
 
     if (this._isAllSilent(wavBlobs)) {
       throw new Error(
         "Decoded audio is silent — the audio track could not be extracted from the lecture stream. " +
-          "If a cached transcript is available, use \"Download Cached Transcript\"; otherwise try re-downloading.",
+          "If this lecture already has a transcript, download it from the versions page; otherwise try re-downloading.",
       );
     }
 
@@ -198,7 +211,7 @@ class CustomAudioTranscriber {
             } else if (isElevenLabs) {
               text = await this._transcribeElevenLabs(blob);
             } else {
-              const model = this.modelName || (isGroq ? "whisper-large-v3-turbo" : "gpt-transcribe");
+              const model = CustomAudioTranscriber.resolveModel(this.baseUrl, this.modelName);
               text = await this._transcribeOpenAICompatible(blob, model);
             }
             answered = true;
@@ -495,7 +508,7 @@ class CustomAudioTranscriber {
   }
 
   async _transcribeDeepgram(blob) {
-    const model = this.modelName || "nova-3";
+    const model = CustomAudioTranscriber.resolveModel(this.baseUrl, this.modelName);
     const contentType = blob.type === "audio/mpeg" ? "audio/mpeg" : "audio/wav";
     const res = await fetch(`${this.baseUrl}?model=${encodeURIComponent(model)}&smart_format=true`, {
       method: "POST",
@@ -519,7 +532,7 @@ class CustomAudioTranscriber {
     const filename = blob.type === "audio/mpeg" ? "audio.m4a" : "audio.wav";
 
     const formData = new FormData();
-    formData.append("model_id", this.modelName || "scribe_v2");
+    formData.append("model_id", CustomAudioTranscriber.resolveModel(this.baseUrl, this.modelName));
     formData.append("file", blob, filename);
 
     const res = await fetch(this.baseUrl, {
