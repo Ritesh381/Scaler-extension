@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
   "leetcode-link": true,
   "problem-picker": true,
   "vim-mode": false,
+  "vim-paste": false,
   "practice-mode": false,
   "practice-mode-days": 7,
   "practice-mode-start": null,

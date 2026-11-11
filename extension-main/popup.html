@@ -132,7 +132,7 @@
                 <span class="toggle-title">⌨️ Vim Mode</span>
                 <span class="toggle-desc"
                   >Modal Vim keybindings in the coding editor (assignment and
-                  homework problems)</span
+                  homework problems). :w runs the code, :wq submits it</span
                 >
               </div>
               <div class="toggle-switch">
@@ -140,6 +140,19 @@
                 <span class="slider"></span>
               </div>
             </label>
+            <!-- Vim Mode sub-options -->
+            <div id="vim-mode-options" class="sub-options" style="display: none">
+              <label class="sub-option-row">
+                <span class="sub-option-label"
+                  >Paste from system clipboard with p (Chrome will ask for
+                  clipboard permission, click Allow)</span
+                >
+                <div class="toggle-switch">
+                  <input type="checkbox" id="toggle-vim-paste" />
+                  <span class="slider"></span>
+                </div>
+              </label>
+            </div>
 
             <label class="toggle-item highlight">
               <div class="toggle-info">

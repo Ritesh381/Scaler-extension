@@ -100,15 +100,105 @@ Some Scaler pages (the live classroom) are already dark. Inverting those is wron
 
 - `pageBaseLuminance()` samples `body`, then `documentElement`, then the largest top-level child
   with an opaque background; `pageIsDark()` is `< 0.22`.
-- `reconcileThemeClasses()` (cheap: one luminance read + classList diffs) decides
-  `wantInvert = theme.filter && !pageIsDark()` and adds/removes `scaler-theme-active` plus the
-  theme-specific class `scaler-theme-{id}`. Diff-based, so a stable page never toggles a class and
-  never flashes.
-- `evaluateAndRender()` = reconcile + a one-off full-document region scan (or `clearDarkRegions()`
-  when off) + `removePreloadStyle()`.
+- `reconcileThemeClasses()` (cheap: one luminance read, a size check per `<video>`, classList
+  diffs) decides the mode — `off`, `root`, or `scoped` when a lecture-sized video is on screen
+  (see [Video-scoped mode](#video-scoped-mode-lecture-recordings)) — and adds/removes
+  `scaler-theme-active` / `scaler-theme-scoped` plus the theme-specific class
+  `scaler-theme-{id}`. Diff-based, so a stable page never toggles a class and never flashes.
+- `evaluateAndRender()` = reconcile + `renderThemeMode()` (a one-off full-document region scan
+  in root mode, `scopeAroundVideos()` in scoped mode, `clearDarkRegions()` when off) +
+  `removePreloadStyle()`.
 
 The stylesheet itself (`#scaler-theme-styles`) is written **once per theme** and is page-agnostic;
 the root classes gate whether it applies.
+
+## Video-scoped mode (lecture recordings)
+
+### Why the counter-filter isn't enough for video
+
+`invert(1) hue-rotate(180deg)` is self-inverse only on paper. `hue-rotate` produces
+out-of-gamut values that are clamped after every step, so a saturated colour does not survive
+the round trip. Worse, some colours cannot be produced through the root filter **at all**:
+for `P(x) = (1, 0, 0)` the pre-image `x` would have to be `(1.574, 0.574, 0.574)`, which is
+outside `[0, 1]`. No counter-filter on the `<video>`, however exact, can paint pure red under
+a root `invert hue-rotate`.
+
+Measured in Chromium on a fixture of the lecture page (Dark theme, colour bars as the video
+frame):
+
+| Colour | Root filter + counters | Video-scoped mode |
+|---|---|---|
+| red `(255, 0, 0)` | `(172, 63, 63)` | `(255, 0, 0)` |
+| blue `(0, 0, 255)` | `(32, 32, 68)` | `(0, 0, 255)` |
+| cyan `(0, 255, 255)` | `(84, 192, 192)` | `(0, 255, 255)` |
+
+CSS has no way for an element to opt out of an ancestor's `filter`, so the only fix is to keep
+the filter off every ancestor of the video.
+
+### How it works
+
+`reconcileThemeClasses()` picks one of three modes per page:
+
+| Mode | When | Root class |
+|---|---|---|
+| `off` | theme off, or the page is natively dark | — |
+| `scoped` | a `<video>` of at least 320 × 180 px is on screen (`findExemptVideos`) | `scaler-theme-scoped` |
+| `root` | otherwise | `scaler-theme-active` |
+
+In scoped mode `scopeAroundVideos(videos)` collects every ancestor of every exempt video (the
+*path*) and walks down from `<body>`:
+
+- **Path element** — never filtered. If its own background is opaque and light, it is
+  recoloured inline to what the filter would have produced (`applyFilterToRgb`, which matches
+  Chromium's output exactly, measured for every theme) and tagged `data-scaler-video-path` so
+  teardown can restore the previous inline value.
+- **Off-path element** — `classifyOffPath()`:
+  - media (`img`, `video`, `canvas`, `iframe`, …), inline `background-image`, and the
+    extension's spotlight overlay stay native — what root mode's counters produce anyway;
+  - a dark element (own dark background, or transparent on a dark surface) stays native and
+    its children are searched for *light islands* — this is how the white chat or playlist
+    panel inside the dark player overlay gets themed;
+  - a visible wrapper with zero width or height (a portal root whose children are
+    `position: fixed`) is descended into rather than filtered;
+  - a light chip smaller than 48 × 28 px on a dark surface is left native (it is part of that
+    chrome's design);
+  - anything else is flagged `.scaler-themed` + `data-scaler-themed` and gets the theme
+    filter. `neutralizeDarkRegions()` then runs inside it, so dark buttons in a themed panel
+    keep their counter exactly as in root mode.
+
+The CSS for both modes comes from one helper, `buildFilteredScopeCss(theme, scope)`, emitted
+once with `html.scaler-theme-active` and once with `html.scaler-theme-scoped .scaler-themed`,
+so the media / region / component-fix rules can't drift apart. Root-mode output is unchanged
+and emitted first. In scoped mode `<html>` is painted with the themed version of `theme.bg`;
+the Midnight accent (a pre-image) is gated to root mode only.
+
+### Keeping it current
+
+- The existing body observer and rAF flush are reused. A flush re-renders from scratch only
+  when the mode or the set of exempt videos changes, or when an added node contains an exempt
+  video (a re-parented player). Otherwise added nodes are handled incrementally
+  (`extendScopedTheme`): inside a themed subtree they get the dark-region scan; elsewhere
+  they are classified against the surface they sit on (`sitsOnDark`).
+- A capture-phase `loadedmetadata` listener on `document` schedules a flush, because a
+  player's `<video>` can reach lecture size when its stream loads, with no node added. It is
+  removed in `stopThemeObserver()`.
+- `ownOpaqueBg()` reports the *original* colour of recoloured path elements, and theme.bg for
+  `<html>` in scoped mode, so `pageIsDark()` never reads our own paint back and flips the page
+  to `off`.
+- Leaving scoped mode (`clearScopedTheme`) removes every flag and restores inline
+  backgrounds; switching to root mode also clears dark-region flags first so none ends up
+  nested inside a root-mode region.
+
+### Limits
+
+- A `position: fixed` element *inside* a themed panel is positioned relative to that panel,
+  and `z-index` inside it can't escape it — a filter establishes a containing block and a
+  stacking context. Zero-size portal roots are handled; a fixed popup inside a sized panel is
+  not.
+- Path elements' own borders, shadows and direct text nodes are not themed (only their
+  background is recoloured).
+- Natively-dark chrome renders in its exact native colours rather than root mode's slightly
+  darkened ones (no `brightness(1.1)` region bump).
 
 ## Anti-FOUC preload
 

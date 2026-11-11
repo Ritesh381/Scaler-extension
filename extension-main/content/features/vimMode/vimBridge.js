@@ -16,6 +16,10 @@
     lineNumbersPrev: null,
     messageListener: null,
     editorListener: null,
+    subs: [],
+    blurAt: 0,
+    lastClipboard: null,
+    paste: false,
   };
 
   function ensureStatusNode(editor) {
@@ -46,6 +50,12 @@
     if (!statusNode) return;
     state.vim = window.MonacoVim.initVimMode(editor, statusNode);
     state.editor = editor;
+    state.subs = [
+      editor.onDidFocusEditorText(() => syncFromClipboard()),
+      editor.onDidBlurEditorText(() => {
+        state.blurAt = Date.now();
+      }),
+    ];
     // Vim-style relative line numbers while attached; remember the editor's own
     // setting so detach can put it back. Monaco's "relative" is the hybrid mode
     // (absolute on the current line, relative elsewhere).
@@ -68,6 +78,8 @@
       }
       state.vim = null;
     }
+    state.subs.forEach((sub) => sub.dispose());
+    state.subs = [];
     if (state.editor && state.lineNumbersPrev != null) {
       try {
         state.editor.updateOptions({ lineNumbers: state.lineNumbersPrev });
@@ -95,27 +107,80 @@
     }
   }
 
+  // Pull outside copies into vim's unnamed register so p/P paste them. Opt-in
+  // via the popup, since reading the clipboard makes Chrome ask for permission.
+  // Reading is async, so we can't do it on the keystroke; instead we sync
+  // whenever the editor gains focus (click in, or return to the tab/window).
+  // Only a clipboard change since we last looked replaces the register, so
+  // ddp still pastes the deleted line; an explicit copy (force) always does.
+  // ponytail: misses a clipboard change made while the editor keeps focus
+  // (e.g. a clipboard manager); intercept p and read first if that matters.
+  function syncFromClipboard(force) {
+    if (!state.paste || !state.vim || !navigator.clipboard || !navigator.clipboard.readText) return;
+    const Vim = window.MonacoVim.VimMode.Vim;
+    const vim = state.vim;
+    const before = Vim.getRegisterController().unnamedRegister.toString();
+    navigator.clipboard
+      .readText()
+      .then((text) => {
+        // Drop a stale read: the register changed while it was pending (a dd
+        // while Chrome's permission prompt was up), or vim was turned off.
+        const register = Vim.getRegisterController().unnamedRegister;
+        if (!state.paste || state.vim !== vim || register.toString() !== before) return;
+        if (!text || (!force && text === state.lastClipboard)) return;
+        state.lastClipboard = text;
+        register.setText(text, text.endsWith("\n"));
+      })
+      .catch(() => {}); // permission denied: p keeps using vim's own register
+  }
+
   // Called by the document_start Escape interceptor in vimEditorCapture.js.
   // Returns true when we've handled the key (so the caller suppresses Scaler's
-  // blur): only while Vim is attached and focus is inside this editor.
-  function handleEscape(target) {
-    if (!state.enabled || !state.vim || !window.MonacoVim) return false;
-    const container =
-      state.editor &&
-      state.editor.getContainerDomNode &&
-      state.editor.getContainerDomNode();
-    if (!container) return false;
-    // Handle Escape when focus is in the editor, or when it has already slipped
-    // to <body> before the key reached us — some setups (e.g. a CapsLock->Esc
+  // blur): only while Vim is attached and the Escape is meant for the code.
+  function handleEscape() {
+    if (!state.enabled || !state.vim || !state.editor || !window.MonacoVim) return false;
+    // Handle Escape when focus is in the editor's text, or when it slipped to
+    // <body> just before the key reached us — some setups (e.g. a CapsLock->Esc
     // remap that emits Ctrl first) blur the editor a beat before Escape lands.
-    // Ignore it only when focus is genuinely in some other field.
+    // Everything else keeps its own Escape: Monaco's find box, page dialogs.
     const active = document.activeElement;
-    const inEditor = container.contains(target) || container.contains(active);
-    const looseBody = !active || active === document.body;
-    if (!inEditor && !looseBody) return false;
+    const justBlurred =
+      (!active || active === document.body) && Date.now() - state.blurAt < 1000;
+    if (!state.editor.hasTextFocus() && !justBlurred) return false;
     window.MonacoVim.VimMode.Vim.handleKey(state.vim, "<Esc>", "user");
     if (state.editor.focus) state.editor.focus();
     return true;
+  }
+
+  if (window.MonacoVim) {
+    const Vim = window.MonacoVim.VimMode.Vim;
+    // Mirror every yank to the system clipboard (like clipboard=unnamedplus,
+    // but yank only, so x/dd don't clobber what you copied).
+    const registers = Object.getPrototypeOf(Vim.getRegisterController());
+    const pushText = registers.pushText;
+    registers.pushText = function (registerName, operator) {
+      pushText.apply(this, arguments);
+      if (operator === "yank" && registerName !== "_") {
+        state.lastClipboard = this.unnamedRegister.toString();
+        navigator.clipboard.writeText(state.lastClipboard).catch(() => {});
+      }
+    };
+    // A copy that bypasses vim (Cmd+C, the context menu) doesn't move focus,
+    // so resync after it too.
+    document.addEventListener("copy", () => setTimeout(() => syncFromClipboard(true), 0));
+    // monaco-vim maps <C-c> to <Esc> and swallows the keydown, so the browser
+    // never copies (ggVG + Ctrl+C just drops to normal mode). Make it a yank
+    // in visual mode; normal/insert mode keep Ctrl+C as Esc.
+    Vim.map("<C-c>", "y", "visual");
+    // :w runs the code (Scaler's "Test" button), :wq submits it.
+    const clickEditorAction = (label) => {
+      const btn = [...document.querySelectorAll("button.ce-btn")].find(
+        (b) => b.textContent.trim() === label,
+      );
+      if (btn) btn.click();
+    };
+    Vim.defineEx("write", "w", () => clickEditorAction("Test"));
+    Vim.defineEx("wq", "wq", () => clickEditorAction("Submit"));
   }
 
   state.messageListener = (event) => {
@@ -124,7 +189,10 @@
     if (!data || data.source !== "scalerpp-vim") return;
     if (data.type === "enable") {
       state.enabled = true;
+      state.paste = !!data.paste;
       attach();
+      // Already focused (e.g. paste just switched on): no focus event is coming.
+      if (state.editor && state.editor.hasTextFocus()) syncFromClipboard();
     } else if (data.type === "disable") {
       state.enabled = false;
       detach();
