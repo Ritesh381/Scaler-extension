@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Scaler++ Bulk Download</title>
+  <link rel="stylesheet" href="../videoDownloader/transcriptProviderConfig.css" />
   <style>
     * {
       box-sizing: border-box;
@@ -88,6 +89,41 @@
       color: #fcd34d;
       font-size: 13px;
       line-height: 1.5;
+    }
+
+    .settings {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 18px;
+      font-size: 14px;
+    }
+
+    .settings label.setting {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+    }
+
+    .settings input[type="number"] {
+      width: 72px;
+      padding: 7px 10px;
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      border-radius: 6px;
+      color: #fff;
+      font: inherit;
+    }
+
+    .settings .hint {
+      color: var(--text-faint);
+      font-size: 12px;
+    }
+
+    .settings .config-section {
+      margin-bottom: 0;
+      max-width: 560px;
     }
 
     .actions {
@@ -205,6 +241,20 @@
       <p class="summary" id="summary"></p>
       <div class="notice" id="notice" hidden></div>
 
+      <div class="settings" id="settings">
+        <label class="setting">
+          Lectures at a time
+          <input type="number" id="parallel-input" min="1" max="6" value="2" />
+          <span class="hint">Each downloads its stream with 6 connections; more lectures = more bandwidth.</span>
+        </label>
+        <label class="setting" id="generate-row" hidden>
+          <input type="checkbox" id="generate-input" />
+          Also transcribe lectures nobody has transcribed yet, with this API key (uses your credits; one
+          lecture at a time)
+        </label>
+        <div id="provider-config" hidden></div>
+      </div>
+
       <div class="actions">
         <button class="btn-primary" id="start-btn">Choose a folder &amp; start</button>
         <button class="btn-ghost" id="cancel-btn" hidden>Cancel</button>
@@ -227,8 +277,8 @@
       <div class="logs" id="logs" hidden></div>
 
       <p class="foot">
-        Keep this tab open until everything finishes. Streams are fetched through the
-        Scaler tab you started from, so keep that tab open on Scaler too.
+        Keep this tab open until everything finishes. Keep the Scaler tab you started from open
+        too: streams are fetched directly, and through that tab if a direct fetch is blocked.
       </p>
     </section>
   </div>
@@ -237,6 +287,7 @@
   <script src="../videoDownloader/tsAudioExtractor.js"></script>
   <script src="../videoDownloader/hlsDownloadEngine.js"></script>
   <script src="../videoDownloader/transcriptHeader.js"></script>
+  <script src="../videoDownloader/transcriptProviderConfig.js"></script>
   <script src="bulkJob.js"></script>
   <script src="bulkDownloadPage.js"></script>
 </body>

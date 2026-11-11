@@ -16,6 +16,12 @@ const HLS_CHUNK_RETRIES = 3;
  *   (FETCH_PROXY in videoDownloader.js): the CDN's CORS headers are cut for
  *   the scaler.com origin, so the proxy goes first and a direct fetch is the
  *   fallback when that tab can't be reached.
+ * @param {boolean} [opts.directFirst] fetch directly first and use the proxy
+ *   only as the fallback. The proxy relays every chunk as a message through
+ *   one tab, which caps throughput; when the CDN answers the extension
+ *   directly (Scaler serves recordings from www.scaler.com, which the
+ *   extension's host permission covers) direct is much faster. After the
+ *   first failed direct fetch the engine stays on the proxy.
  * @param {"video"|"audio"|"transcript"} [opts.type] picks the rendition
  * @param {(msg: string) => void} [opts.onLog]
  * @param {(done: number, total: number) => void} [opts.onProgress]
@@ -23,12 +29,22 @@ const HLS_CHUNK_RETRIES = 3;
  */
 function createHlsEngine({
   sourceTabId,
+  directFirst = false,
   type = "video",
   onLog = () => {},
   onProgress = () => {},
   signal,
 } = {}) {
   const hasProxy = Number.isInteger(sourceTabId);
+  // Flips to false the first time a direct fetch fails, so a CDN that only
+  // answers the proxy costs one wasted request, not one per chunk.
+  let tryDirect = directFirst;
+
+  async function directFetch(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
+    return res;
+  }
 
   const throwIfAborted = () => {
     if (signal && signal.aborted) throw new DOMException("Download cancelled.", "AbortError");
@@ -53,6 +69,13 @@ function createHlsEngine({
   }
 
   async function fetchText(url) {
+    if (hasProxy && tryDirect) {
+      try {
+        return await (await directFetch(url)).text();
+      } catch (_) {
+        tryDirect = false;
+      }
+    }
     if (hasProxy) {
       try {
         return await proxyFetch(url, "text");
@@ -175,6 +198,13 @@ function createHlsEngine({
     for (let retry = 0; retry < HLS_CHUNK_RETRIES; retry++) {
       throwIfAborted();
       try {
+        if (hasProxy && tryDirect) {
+          try {
+            return await (await directFetch(url)).arrayBuffer();
+          } catch (_) {
+            tryDirect = false;
+          }
+        }
         if (hasProxy) {
           try {
             // Reconstitute ArrayBuffer from number array

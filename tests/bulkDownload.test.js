@@ -135,17 +135,18 @@ test("the picker: From/To range, shift-click, then Start sends the chosen lectur
   window.openBulkModal(window.findLectureRows(doc), "SST DevOps & Cloud [SWE]");
   const modal = doc.getElementById("scaler-bulk-download-modal");
   const boxes = Array.from(modal.querySelectorAll(".sbd-list input"));
-  assert.deepEqual(boxes.map((b) => b.checked), [true, true, true], "everything selected to start");
+  assert.deepEqual(boxes.map((b) => b.checked), [true, true, false], "everything but the lab selected to start");
 
   const from = modal.querySelector(".sbd-from");
   from.value = "1";
   from.dispatchEvent(new window.Event("change"));
-  assert.deepEqual(boxes.map((b) => b.checked), [false, true, true], "range 2–3");
+  assert.deepEqual(boxes.map((b) => b.checked), [false, true, false], "range 2–3, lab left out");
 
   modal.querySelector(".sbd-none").click();
   boxes[0].click(); // check 1
-  boxes[2].dispatchEvent(new window.MouseEvent("click", { shiftKey: true, bubbles: true }));
-  assert.deepEqual(boxes.map((b) => b.checked), [true, true, true], "shift-click fills the range");
+  boxes[1].dispatchEvent(new window.MouseEvent("click", { shiftKey: true, bubbles: true }));
+  assert.deepEqual(boxes.map((b) => b.checked), [true, true, false], "shift-click fills the range");
+  boxes[2].click(); // tick the lab by hand — always allowed
   boxes[1].click(); // uncheck 2
 
   modal.querySelector('.sbd-type[value="video"]').checked = true;
@@ -247,4 +248,33 @@ test("real Scaler class-list rows: mixed-case stamp, CSS-free pipe span, title l
   ]);
   window.initBulkDownload();
   assert.ok(window.document.getElementById("scaler-bulk-download-bar"), "bar injected above the real rows");
+});
+
+test("lab classes are unticked and tagged; ranges skip them unless Include labs is ticked", () => {
+  const { window } = load();
+  window.openBulkModal(window.findLectureRows(window.document), "");
+  const modal = window.document.getElementById("scaler-bulk-download-modal");
+  const boxes = Array.from(modal.querySelectorAll(".sbd-list input"));
+  const labRow = boxes[2].closest("label");
+  assert.match(labRow.textContent, /DevOps Lab 1/);
+  assert.ok(labRow.querySelector(".sbd-lab"), "tagged as a lab");
+
+  modal.querySelector(".sbd-all").click();
+  assert.deepEqual(boxes.map((b) => b.checked), [true, true, false], "All leaves the lab out");
+
+  const include = modal.querySelector(".sbd-include-labs");
+  include.checked = true;
+  include.dispatchEvent(new window.Event("change"));
+  assert.deepEqual(boxes.map((b) => b.checked), [true, true, true], "Include labs ticks labs in the range");
+  include.checked = false;
+  include.dispatchEvent(new window.Event("change"));
+  assert.equal(boxes[2].checked, false, "and unticks them again");
+});
+
+test("isLabClass matches the word lab, not words containing it", () => {
+  const { window } = load();
+  assert.equal(window.isLabClass("DevOps Lab 1"), true);
+  assert.equal(window.isLabClass("lab: networking"), true);
+  assert.equal(window.isLabClass("Collaboration & Labelling"), false);
+  assert.equal(window.isLabClass("Introduction to DevOps"), false);
 });

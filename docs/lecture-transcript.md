@@ -153,6 +153,11 @@ partial transcript never poisons the cache.
 
 ## Provider configuration (processor page)
 
+Rendered by `mountProviderConfig()` in
+[transcriptProviderConfig.js](../extension-main/content/features/videoDownloader/transcriptProviderConfig.js)
+(styles in `transcriptProviderConfig.css`), which the bulk download page mounts too — both pages show
+the same fields and share the saved settings.
+
 Provider dropdown + Base URL + Model + API key, persisted in `chrome.storage`, with a
 "get an API key" link and a "browse available models" link per provider, and an eye toggle for
 the key field.

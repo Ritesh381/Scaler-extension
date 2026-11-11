@@ -23,7 +23,7 @@ function loadPage(query, { chrome, fetch, alerts } = {}) {
   if (alerts) window.alert = (msg) => alerts.push(msg);
   // The page's <script> tags share one global scope; evaluate them as one.
   window.eval(
-    ["tsAudioExtractor.js", "customAudioTranscriber.js", "transcriptHeader.js", "transcriptProcessor.js"]
+    ["tsAudioExtractor.js", "transcriptHeader.js", "customAudioTranscriber.js", "transcriptProviderConfig.js", "transcriptProcessor.js"]
       .map((f) => readFeature(`${DIR}/${f}`))
       .join("\n;\n"),
   );

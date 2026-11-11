@@ -150,3 +150,44 @@ test("downloadToMemory returns every chunk concatenated in order", async () => {
   const buf = await engine.downloadToMemory(await engine.resolveSegments(BASE + "master.m3u8"));
   assert.deepEqual(Array.from(new Uint8Array(buf)), [0, 1, 2, 3, 4]);
 });
+
+test("directFirst: fetches directly when the CDN answers; the proxy isn't touched", async () => {
+  const { fetch, requested } = cdn({ segments: 3 });
+  const chrome = makeChrome();
+  let proxied = 0;
+  chrome.tabs = { sendMessage: () => { proxied++; } };
+  const { window } = loadFeature(FILE, { fetch, chrome });
+  const { engine } = engineFor(window, { type: "video", sourceTabId: 42, directFirst: true });
+  const out = writable();
+  await engine.downloadConcurrently(await engine.resolveSegments(BASE + "master.m3u8"), out);
+  assert.deepEqual(out.writes, [0, 1, 2]);
+  assert.equal(proxied, 0);
+  assert.equal(requested.length, 5, "master + media + 3 chunks, all direct");
+});
+
+test("directFirst: one failed direct fetch switches the rest of the download to the proxy", async () => {
+  const base = cdn({ segments: 4 });
+  let directOk = true;
+  const fetch = async (url) => {
+    if (!directOk) throw new TypeError("Failed to fetch"); // CORS-style failure
+    return base.fetch(url);
+  };
+  const chrome = makeChrome();
+  let proxied = 0;
+  chrome.tabs = {
+    sendMessage: (tabId, msg, cb) => {
+      proxied++;
+      base.fetch(msg.url).then(async (res) =>
+        cb({ success: true, data: msg.type === "text" ? await res.text() : Array.from(new Uint8Array(await res.arrayBuffer())) }),
+      );
+    },
+  };
+  const { window } = loadFeature(FILE, { fetch, chrome });
+  const { engine } = engineFor(window, { type: "video", sourceTabId: 42, directFirst: true });
+  const segs = await engine.resolveSegments(BASE + "master.m3u8"); // direct
+  directOk = false;
+  const out = writable();
+  await engine.downloadConcurrently(segs, out);
+  assert.deepEqual(out.writes, [0, 1, 2, 3], "nothing lost");
+  assert.equal(proxied, 4, "every chunk via the proxy once direct failed");
+});

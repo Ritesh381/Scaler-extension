@@ -133,7 +133,8 @@ missing, the transcript is refused — a partial transcript would be cached as t
 ## The download engine (`videoProcessor.js` + `hlsDownloadEngine.js`)
 
 The engine itself lives in [hlsDownloadEngine.js](../extension-main/content/features/videoDownloader/hlsDownloadEngine.js)
-(`createHlsEngine({ sourceTabId, type, onLog, onProgress, signal })`), shared with the bulk
+(`createHlsEngine({ sourceTabId, directFirst, type, onLog, onProgress, signal })`; `directFirst` —
+used by bulk download — fetches directly and keeps the proxy as the fallback), shared with the bulk
 download page ([bulk-download.md](bulk-download.md)); `videoProcessor.js` is the page around it.
 
 1. **Save target, first.** `window.showSaveFilePicker` is requested **synchronously inside the

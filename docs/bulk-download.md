@@ -23,9 +23,20 @@ in one go, into one folder.
 2. Click **⬇ Bulk download lectures** above the list.
 3. In the picker: choose lectures (From/To range, shift-click, All/None), what to save
    (**Transcripts**, **Video**, **Audio**), and optionally **"Also transcribe lectures nobody has
-   transcribed yet"** (off by default — uses the user's saved API key and credits).
-4. **Start** opens the bulk download page. **Choose a folder & start** — one folder picker,
-   then every file streams into it:
+   transcribed yet"** (off by default — uses the user's API key and credits). **Lab sessions**
+   (titles with the word "Lab", e.g. "DevOps Lab 1") are tagged *lab* and start unticked; ranges and
+   All skip them unless **Include labs** is ticked, and a lab can always be ticked by hand
+   (`isLabClass`).
+4. **Start** opens the bulk download page. Before starting, it offers:
+   - **Lectures at a time** (1–6, default 2, remembered in `chrome.storage.local`
+     `scaler_bulk_settings`);
+   - **Also transcribe lectures nobody has transcribed yet** (pre-filled from the picker) with the
+     **same provider fields as the transcript page** — provider, Base URL, model, API key — rendered by
+     the shared `mountProviderConfig()` and saved to the same `scaler_transcript_config`, which is what
+     the background transcript tabs start from. Start refuses to begin generating without a Base URL
+     and key.
+
+   Then **Choose a folder & start** — one folder picker, then every file streams into it:
 
    ```
    01 - 11 Aug - Introduction to DevOps & Microservices.txt
@@ -83,8 +94,8 @@ render after navigation and **disconnects as soon as the bar is in**, or after 3
   the writable and removes the half-written file. Without the API (Brave, Firefox), transcripts
   are collected into one JSZip downloaded at the end, and each video/audio file is buffered in
   memory and downloaded on its own — a notice says so.
-- **Concurrency** — `runWithConcurrency(lectures, 2, …)`; each lecture's chunk downloads use the
-  engine's 6 workers. Generated transcripts are serialised through one promise chain (one
+- **Concurrency** — `runWithConcurrency(lectures, <Lectures at a time>, …)`; each lecture's chunk
+  downloads use the engine's 6 workers. Generated transcripts are serialised through one promise chain (one
   processor tab at a time).
 - **Transcripts** — slug from `/api/v2/classroom/{id}/meta` (memoised), `checkTranscriptCache`,
   then `fetchMetadataHeader()` + text into the folder; the version counts its download
@@ -97,7 +108,11 @@ render after navigation and **disconnects as soon as the bar is in**, or after 3
   The bulk page writes the text, closes the tab, and removes its `onMessage` / `onRemoved`
   listeners. A transcript with failed chunks is saved but marked *with gaps*.
 - **Video / audio** — `CAPTURE_LECTURE_STREAMS` (shared with the single-lecture downloader and
-  cached per lecture), then `createHlsEngine({ sourceTabId, type, signal })` per part.
+  cached per lecture), then `createHlsEngine({ sourceTabId, directFirst: true, type, signal })` per
+  part. **Direct first:** recordings come from `www.scaler.com`, which the extension's host
+  permission covers, so the page fetches them itself. Relaying every chunk as a message through the
+  subject tab (the proxy) capped throughput and made parallel downloads crawl; the proxy is now only
+  the fallback, used for the rest of a download after the first direct fetch fails.
 
 ### Shared pieces extracted in this change
 
@@ -109,6 +124,9 @@ render after navigation and **disconnects as soon as the bar is in**, or after 3
   already did this).
 - `transcriptHeader.js` — `fetchMetadataHeader()`, previously duplicated in the processor and the
   versions page.
+- `transcriptProviderConfig.js` / `.css` — the provider fields and their per-provider persistence,
+  moved out of the transcript page (`mountProviderConfig(container, { onLoaded })`) so the bulk
+  page shows exactly the same fields.
 - `utils/domUtils.js → textNodesMatching()` — the text-node walker the playlist parser and the
   row parser share.
 

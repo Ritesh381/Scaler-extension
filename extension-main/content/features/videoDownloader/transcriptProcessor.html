@@ -5,6 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Scaler++ Transcription</title>
+  <link rel="stylesheet" href="transcriptProviderConfig.css" />
   <style>
     * {
       box-sizing: border-box;
@@ -75,111 +76,6 @@
       background: rgba(16, 185, 129, 0.15);
       color: #34d399;
       border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .config-section {
-      background: #18181b;
-      border: 1px solid #27272a;
-      border-radius: 10px;
-      padding: 16px;
-      margin-bottom: 24px;
-      text-align: left;
-    }
-
-    .config-section label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      color: #a1a1aa;
-      margin-bottom: 6px;
-    }
-
-    .config-section input,
-    .config-section select {
-      width: 100%;
-      background: #27272a;
-      border: 1px solid #3f3f46;
-      color: #fff;
-      padding: 10px 12px;
-      border-radius: 6px;
-      margin-bottom: 14px;
-      font-size: 13px;
-      font-family: inherit;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    .config-section input:focus,
-    .config-section select:focus {
-      border-color: #3484f0;
-    }
-
-    .api-key-container {
-      position: relative;
-      display: flex;
-      align-items: center;
-      width: 100%;
-      margin-bottom: 14px;
-    }
-
-    .api-key-container input {
-      margin-bottom: 0 !important;
-      padding-right: 40px !important;
-    }
-
-    .toggle-api-key-btn {
-      position: absolute;
-      right: 4px;
-      background: transparent !important;
-      border: none !important;
-      color: #71717a !important;
-      cursor: pointer;
-      padding: 8px !important;
-      width: auto !important;
-      font-size: 16px;
-      box-shadow: none !important;
-      transform: none !important;
-      user-select: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .toggle-api-key-btn:hover {
-      color: #e4e4e7 !important;
-      box-shadow: none !important;
-      transform: none !important;
-    }
-
-    .privacy-note {
-      font-size: 11px;
-      color: #10b981;
-      margin-top: 4px;
-      line-height: 1.4;
-    }
-
-    .service-link {
-      color: #3484f0;
-      text-decoration: none;
-      font-size: 12px;
-      display: inline-block;
-      margin-bottom: 14px;
-    }
-
-    /* The key link and the models link sit on one row, separated by a divider. */
-    #models-link {
-      margin-left: 12px;
-      padding-left: 12px;
-      border-left: 1px solid #3f3f46;
-      color: #a1a1aa;
-    }
-
-    #models-link:hover {
-      color: #3484f0;
-    }
-
-    .service-link:hover {
-      text-decoration: underline;
     }
 
     #status-text {
@@ -322,51 +218,7 @@
 
     <div id="mode-badge" class="mode-badge">TRANSCRIPT</div>
 
-    <div class="config-section">
-      <label for="provider-select">Service Provider (Suggestion):</label>
-      <select id="provider-select">
-        <option value="groq" data-url="https://api.groq.com/openai/v1/audio/transcriptions"
-          data-link="https://console.groq.com/keys"
-          data-models="https://console.groq.com/docs/models" selected>Groq (Recommended)</option>
-        <option value="deepgram" data-url="https://api.deepgram.com/v1/listen"
-          data-link="https://console.deepgram.com/"
-          data-models="https://developers.deepgram.com/docs/models-languages-overview">Deepgram</option>
-        <option value="openai" data-url="https://api.openai.com/v1/audio/transcriptions"
-          data-link="https://platform.openai.com/api-keys"
-          data-models="https://platform.openai.com/docs/models">OpenAI</option>
-        <option value="elevenlabs" data-url="https://api.elevenlabs.io/v1/speech-to-text"
-          data-link="https://elevenlabs.io/api"
-          data-models="https://elevenlabs.io/docs/overview/models">ElevenLabs</option>
-        <option value="custom" data-url="" data-link="" data-models="">Custom (OpenAI Compatible API)</option>
-      </select>
-
-      <a id="get-key-link" class="service-link" href="https://console.groq.com/keys" target="_blank">Get API Key for
-        Groq</a>
-      <a id="models-link" class="service-link" href="https://console.groq.com/docs/models" target="_blank">Browse
-        available models</a>
-
-      <label for="base-url">Base URL:</label>
-      <input type="text" id="base-url" placeholder="https://api.groq.com/openai/v1/audio/transcriptions"
-        value="https://api.groq.com/openai/v1/audio/transcriptions" />
-
-      <label id="model-name-label" for="model-name">Model Name:</label>
-      <input type="text" id="model-name" placeholder="e.g. whisper-1" />
-
-      <label for="api-key">API Key:</label>
-      <div class="api-key-container">
-        <input type="password" id="api-key" placeholder="Enter your API Key" />
-        <button type="button" id="toggle-api-key-btn" class="toggle-api-key-btn" title="Toggle visibility">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-            <circle cx="12" cy="12" r="3"></circle>
-          </svg>
-        </button>
-      </div>
-
-      <p class="privacy-note">🔒 Your data remains on your browser and is never sent to any third-party servers by this
-        extension.</p>
-    </div>
+    <div id="provider-config"></div>
 
     <p id="status-text">Ready to transcribe.</p>
 
@@ -392,6 +244,7 @@
   <script src="tsAudioExtractor.js"></script>
   <script src="transcriptHeader.js"></script>
   <script src="customAudioTranscriber.js"></script>
+  <script src="transcriptProviderConfig.js"></script>
   <script src="transcriptProcessor.js"></script>
 </body>
 

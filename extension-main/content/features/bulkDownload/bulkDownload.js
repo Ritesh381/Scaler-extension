@@ -33,6 +33,14 @@ let _bulkCapTimer = null;
 let _bulkDebounceTimer = null;
 let _bulkModalAbort = null; // AbortController for the open modal's listeners
 
+/**
+ * Lab sessions ("DevOps Lab 1") are hands-on time without a lecture worth
+ * keeping, so the picker leaves them unticked by default.
+ */
+function isLabClass(title) {
+  return /\blab\b/i.test(title || "");
+}
+
 function isClassListPage(path = location.pathname) {
   return /\/core-curriculum\/.*\/classes/.test(path);
 }
@@ -248,6 +256,7 @@ function openBulkModal(lectures, subject) {
         <label>To <select class="sbd-to"></select></label>
         <button type="button" class="sbd-link sbd-all">All</button>
         <button type="button" class="sbd-link sbd-none">None</button>
+        <label class="sbd-labs"><input type="checkbox" class="sbd-include-labs"> Include labs</label>
       </div>
       <ul class="sbd-list"></ul>
       <div class="sbd-types">
@@ -279,7 +288,7 @@ function openBulkModal(lectures, subject) {
     const label = document.createElement("label");
     const box = document.createElement("input");
     box.type = "checkbox";
-    box.checked = !!lecture.classId;
+    box.checked = !!lecture.classId && !isLabClass(lecture.title);
     box.disabled = !lecture.classId;
     const stamp = document.createElement("span");
     stamp.className = "sbd-stamp";
@@ -288,6 +297,12 @@ function openBulkModal(lectures, subject) {
     title.className = "sbd-title";
     title.textContent = lecture.title || `Lecture ${lecture.index}`;
     label.append(box, stamp, title);
+    if (isLabClass(lecture.title)) {
+      const tag = document.createElement("span");
+      tag.className = "sbd-note sbd-lab";
+      tag.textContent = "lab";
+      label.append(tag);
+    }
     if (!lecture.classId) {
       const note = document.createElement("span");
       note.className = "sbd-note";
@@ -311,10 +326,15 @@ function openBulkModal(lectures, subject) {
     const n = boxes.filter((b) => b.checked).length;
     $(".sbd-count").textContent = `${n} lecture${n === 1 ? "" : "s"} selected`;
   };
+  const includeLabs = overlay.querySelector(".sbd-include-labs");
+  // Ranges and All leave labs alone unless "Include labs" is ticked; ticking
+  // a lab by hand always works.
   const selectRange = (a, b, checked = true) => {
     const [lo, hi] = a <= b ? [a, b] : [b, a];
     boxes.forEach((box, i) => {
-      if (!box.disabled) box.checked = i >= lo && i <= hi ? checked : box.checked;
+      if (box.disabled || i < lo || i > hi) return;
+      if (checked && isLabClass(lectures[i].title) && !includeLabs.checked) return;
+      box.checked = checked;
     });
     updateCount();
   };
@@ -325,6 +345,19 @@ function openBulkModal(lectures, subject) {
     selectRange(parseInt(from.value, 10), parseInt(to.value, 10));
   };
   from.addEventListener("change", applyFromTo, { signal });
+  includeLabs.addEventListener(
+    "change",
+    () => {
+      const [lo, hi] = [parseInt(from.value, 10), parseInt(to.value, 10)].sort((x, y) => x - y);
+      boxes.forEach((box, i) => {
+        if (!box.disabled && i >= lo && i <= hi && isLabClass(lectures[i].title)) {
+          box.checked = includeLabs.checked;
+        }
+      });
+      updateCount();
+    },
+    { signal },
+  );
   to.addEventListener("change", applyFromTo, { signal });
 
   let lastClicked = null;

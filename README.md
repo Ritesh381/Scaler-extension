@@ -24,7 +24,7 @@ Credits - [PHATWalrus](https://github.com/PHATWalrus)
 
 ## 📦 Bulk Lecture Download
 
-On a subject's class list, **⬇ Bulk download lectures** saves transcripts, video and/or audio for any range of lectures into one folder, named in lecture order (`01 - 11 Aug - Introduction to DevOps.mp4`). Cached transcripts are free and instant; optionally, lectures nobody has transcribed yet are transcribed with your own API key, one at a time.
+On a subject's class list, **⬇ Bulk download lectures** saves transcripts, video and/or audio for any range of lectures into one folder, named in lecture order (`01 - 11 Aug - Introduction to DevOps.mp4`). Lab sessions are skipped by default. Choose how many lectures download at once; cached transcripts are free and instant, and lectures nobody has transcribed yet can be transcribed with your own API key (same provider/model/key fields as the transcript page), one at a time.
 
 ## 🔴 Live Stream Recorder & ⏪ DVR
 
@@ -166,6 +166,7 @@ extension-main/
     │   │   ├── videoProcessor.js     ← Single-lecture download page
     │   │   ├── hlsDownloadEngine.js  ← Concurrent HLS downloader engine (shared)
     │   │   ├── transcriptHeader.js   ← Transcript metadata header (shared)
+    │   │   ├── transcriptProviderConfig.js/.css ← Provider/model/API-key fields (shared)
     │   │   ├── transcriptProcessor.html ← Dedicated transcription UI
     │   │   ├── transcriptProcessor.js   ← Client-side transcript orchestrator
     │   │   ├── customAudioTranscriber.js ← Custom STT API adapters (Deepgram, Groq, etc)

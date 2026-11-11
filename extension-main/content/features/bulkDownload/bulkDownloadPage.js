@@ -10,7 +10,10 @@
 //     (CAPTURE_LECTURE_STREAMS), downloaded by the shared HLS engine.
 // ============================================================
 
-const BULK_LECTURE_CONCURRENCY = 2; // lectures worked on at once
+// Lectures worked on at once: the user's choice, remembered, clamped to this.
+const BULK_PARALLEL_DEFAULT = 2;
+const BULK_PARALLEL_MAX = 6;
+const BULK_SETTINGS_KEY = "scaler_bulk_settings";
 const BULK_KINDS = ["transcript", "video", "audio"];
 const BULK_KIND_LABELS = { transcript: "Transcript", video: "Video", audio: "Audio" };
 
@@ -26,6 +29,11 @@ const els = {
   headRow: document.getElementById("head-row"),
   rows: document.getElementById("rows"),
   logs: document.getElementById("logs"),
+  settings: document.getElementById("settings"),
+  parallel: document.getElementById("parallel-input"),
+  generateRow: document.getElementById("generate-row"),
+  generate: document.getElementById("generate-input"),
+  providerBox: document.getElementById("provider-config"),
 };
 
 const kinds = job ? BULK_KINDS.filter((k) => job.types[k]) : [];
@@ -38,6 +46,8 @@ let zip = null; // transcripts collected for one .zip when there is no folder
 let controller = null;
 let running = false;
 let generationChain = Promise.resolve(); // generated transcripts run one at a time
+let providerConfig = null; // shared provider fields (transcriptProviderConfig.js)
+let generateMissing = false; // fixed for a run when it starts
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
@@ -64,11 +74,7 @@ function showNotice(text) {
 function render() {
   els.subject.textContent = job.subject || "";
   const what = kinds.map((k) => BULK_KIND_LABELS[k].toLowerCase()).join(", ");
-  els.summary.textContent =
-    `${job.lectures.length} lecture${job.lectures.length === 1 ? "" : "s"} · ${what}` +
-    (job.types.transcript && job.generateMissing
-      ? " · lectures without a transcript will be transcribed with your saved API key"
-      : "");
+  els.summary.textContent = `${job.lectures.length} lecture${job.lectures.length === 1 ? "" : "s"} · ${what}`;
 
   for (const kind of kinds) {
     const th = document.createElement("th");
@@ -204,6 +210,9 @@ async function writeTextFile(name, text) {
 async function downloadStream(url, kind, name, onPercent, signal) {
   const engine = createHlsEngine({
     sourceTabId: job.sourceTabId ?? undefined,
+    // Recordings come from www.scaler.com, which the extension can fetch
+    // itself; relaying every chunk through the subject tab caps throughput.
+    directFirst: true,
     type: kind,
     signal,
     onLog: (line) => {
@@ -326,7 +335,7 @@ async function doTranscript(lecture, signal) {
     return;
   }
 
-  if (!job.generateMissing) {
+  if (!generateMissing) {
     setStatus(lecture, "transcript", "Not transcribed yet", "muted");
     return;
   }
@@ -415,13 +424,14 @@ async function run(lectures) {
   els.start.hidden = true;
   els.retry.hidden = true;
   els.cancel.hidden = false;
+  setSettingsDisabled(true);
   lectures.forEach((lecture) => {
     failed.delete(lecture.classId);
     kinds.forEach((kind) => setStatus(lecture, kind, "Queued", "muted"));
   });
 
   try {
-    await runWithConcurrency(lectures, BULK_LECTURE_CONCURRENCY, (l) => processLecture(l, signal), signal);
+    await runWithConcurrency(lectures, parallelCount(), (l) => processLecture(l, signal), signal);
     lectures.forEach((lecture) =>
       kinds.forEach((kind) => {
         const cell = cells.get(`${lecture.classId}:${kind}`);
@@ -437,12 +447,51 @@ async function run(lectures) {
   } finally {
     running = false;
     controller = null;
+    setSettingsDisabled(false);
     els.cancel.hidden = true;
     els.retry.hidden = failed.size === 0;
     els.summary.textContent = failed.size
       ? `Finished with ${failed.size} lecture${failed.size === 1 ? "" : "s"} failed — see the table.`
       : "Finished.";
   }
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+
+/** "Lectures at a time" from the field, clamped to 1…BULK_PARALLEL_MAX. */
+function parallelCount() {
+  const n = parseInt(els.parallel.value, 10);
+  return Math.min(BULK_PARALLEL_MAX, Math.max(1, Number.isFinite(n) ? n : BULK_PARALLEL_DEFAULT));
+}
+
+function setSettingsDisabled(disabled) {
+  els.settings.querySelectorAll("input, select, button").forEach((el) => {
+    el.disabled = disabled;
+  });
+}
+
+function initSettings() {
+  els.parallel.max = String(BULK_PARALLEL_MAX);
+  chrome.storage.local.get([BULK_SETTINGS_KEY], (result) => {
+    const saved = result[BULK_SETTINGS_KEY];
+    els.parallel.value = String(saved?.parallel || BULK_PARALLEL_DEFAULT);
+  });
+  els.parallel.addEventListener("change", () => {
+    els.parallel.value = String(parallelCount());
+    chrome.storage.local.set({ [BULK_SETTINGS_KEY]: { parallel: parallelCount() } });
+  });
+
+  // Generating needs the same provider fields as the transcript page; the
+  // background transcript tabs start from what is saved here.
+  if (!job.types.transcript) return;
+  els.generateRow.hidden = false;
+  els.generate.checked = job.generateMissing;
+  providerConfig = mountProviderConfig(els.providerBox);
+  const syncProvider = () => {
+    els.providerBox.hidden = !els.generate.checked;
+  };
+  els.generate.addEventListener("change", syncProvider);
+  syncProvider();
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
@@ -452,8 +501,21 @@ if (!job) {
   els.start.disabled = true;
 } else {
   render();
+  initSettings();
 
   els.start.addEventListener("click", async () => {
+    els.notice.hidden = true;
+    generateMissing = !!(job.types.transcript && els.generate.checked);
+    // Checked before the folder picker: a run that would fail on its first
+    // untranscribed lecture shouldn't start.
+    if (generateMissing && providerConfig) {
+      const { baseUrl, apiKey } = providerConfig.values();
+      if (!baseUrl || !apiKey) {
+        showNotice("Enter the provider's Base URL and API key to transcribe lectures, or untick that option.");
+        return;
+      }
+      providerConfig.save();
+    }
     // The folder picker needs the click's user activation, so it must be the
     // first await. Brave blocks the API; Firefox has none.
     if (typeof window.showDirectoryPicker === "function" && !navigator.brave) {

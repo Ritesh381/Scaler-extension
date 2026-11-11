@@ -156,6 +156,17 @@
   font-size: 12px;
 }
 
+#scaler-bulk-download-modal .sbd-labs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+#scaler-bulk-download-modal .sbd-note.sbd-lab {
+  color: #a1a1aa;
+}
+
 #scaler-bulk-download-modal .sbd-types {
   display: flex;
   gap: 18px;
