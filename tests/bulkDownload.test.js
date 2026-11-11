@@ -160,8 +160,8 @@ test("the picker: From/To range, shift-click, then Start sends the chosen lectur
   assert.deepEqual(
     plain(msg.job.lectures.map((l) => [l.index, l.classId, l.url])),
     [
-      [1, "101", "https://www.scaler.com/academy/mentee-dashboard/class/101/session"],
-      [3, "103", "https://www.scaler.com/academy/mentee-dashboard/class/103/session"],
+      [1, "101", "https://www.scaler.com/academy/mentee-dashboard/class/101/session?joinSession=1"],
+      [3, "103", "https://www.scaler.com/academy/mentee-dashboard/class/103/session?joinSession=1"],
     ],
   );
   assert.equal(doc.getElementById("scaler-bulk-download-modal"), null, "picker closes on start");

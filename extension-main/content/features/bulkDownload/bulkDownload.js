@@ -382,7 +382,8 @@ function openBulkModal(lectures, subject) {
               classId: l.classId,
               title: l.title,
               stamp: l.stamp,
-              url: `${location.origin}/academy/mentee-dashboard/class/${l.classId}/session`,
+              // The URL a recording opens at; joinSession=1 puts the page in the player.
+              url: `${location.origin}/academy/mentee-dashboard/class/${l.classId}/session?joinSession=1`,
             })),
           },
         },
