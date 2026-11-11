@@ -43,33 +43,6 @@
     return true;
   }
 
-  if (hook(window.monaco)) return;
-
-  // window.monaco isn't ready yet — install the wrapper the instant it's
-  // assigned, then keep a short polling fallback in case it's defined
-  // non-writably and the setter never fires.
-  let monacoRef;
-  try {
-    Object.defineProperty(window, "monaco", {
-      configurable: true,
-      get: () => monacoRef,
-      set: (value) => {
-        monacoRef = value;
-        hook(value);
-      },
-    });
-  } catch (e) {
-    // defineProperty blocked; the poll below still covers us.
-  }
-
-  const started = Date.now();
-  let poll = setInterval(() => {
-    if (store.hooked || hook(window.monaco) || Date.now() - started > 20000) {
-      clearInterval(poll);
-      poll = null; // Clear reference for garbage collection
-    }
-  }, 50);
-
   // Answer the orchestrator's readiness query (covers the case where monaco
   // was already captured before its listener was set up).
   const queryListener = (e) => {
@@ -90,14 +63,41 @@
   // monaco-vim, so insert -> normal never happens. Registering here at
   // document_start puts this listener ahead of Scaler's, so we can hand Escape
   // to the vim bridge and stop the blur. The bridge only claims it while Vim is
-  // on and the editor is focused; otherwise Escape passes through untouched.
+  // on and the Escape is meant for the code; otherwise it passes through.
   const escapeListener = (e) => {
     if (e.key !== "Escape" && e.keyCode !== 27) return;
     const bridge = window.__scalerppVimBridge;
-    if (bridge && bridge.handleEscape && bridge.handleEscape(e.target)) {
+    if (bridge && bridge.handleEscape && bridge.handleEscape()) {
       e.preventDefault();
       e.stopImmediatePropagation();
     }
   };
   window.addEventListener("keydown", escapeListener, true);
+
+  if (hook(window.monaco)) return;
+
+  // window.monaco isn't ready yet — install the wrapper the instant it's
+  // assigned, then keep a short polling fallback in case it's defined
+  // non-writably and the setter never fires.
+  let monacoRef = window.monaco;
+  try {
+    Object.defineProperty(window, "monaco", {
+      configurable: true,
+      get: () => monacoRef,
+      set: (value) => {
+        monacoRef = value;
+        hook(value);
+      },
+    });
+  } catch (e) {
+    // defineProperty blocked; the poll below still covers us.
+  }
+
+  const started = Date.now();
+  let poll = setInterval(() => {
+    if (store.hooked || hook(window.monaco) || Date.now() - started > 20000) {
+      clearInterval(poll);
+      poll = null; // Clear reference for garbage collection
+    }
+  }, 50);
 })();

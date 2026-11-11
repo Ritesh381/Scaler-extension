@@ -16,6 +16,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "settingsUpdated") {
     currentSettings = { ...DEFAULT_SETTINGS, ...message.settings };
     applyAllSettings();
+    if (typeof initVimMode === "function") initVimMode();
     if (typeof applyTheme === "function") applyTheme(currentSettings.theme);
     sendResponse({ success: true });
   } else if (message.action === "toggleSetting") {
@@ -119,8 +120,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!value && typeof closeSpotlight === "function") {
         closeSpotlight();
       }
-    } else if (key === "vim-mode") {
-      if (typeof setVimEnabled === "function") setVimEnabled(value);
+    } else if (key === "vim-mode" || key === "vim-paste") {
+      // Re-syncs vim with the settings; the enable message carries the paste flag.
+      if (typeof initVimMode === "function") initVimMode();
     } else if (key === "theme") {
       // Site-wide theme switch — value is a theme id ("off", "dark", ...)
       if (typeof applyTheme === "function") applyTheme(value);
