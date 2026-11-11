@@ -12,13 +12,15 @@ const startBtn = document.getElementById("start-btn");
 const cacheBtn = document.getElementById("cache-btn");
 const btnDivider = document.getElementById("btn-divider");
 
-const providerSelect = document.getElementById("provider-select");
-const baseUrlInput = document.getElementById("base-url");
-const modelInput = document.getElementById("model-name");
-const modelLabel = document.getElementById("model-name-label");
-const apiKeyInput = document.getElementById("api-key");
-const getKeyLink = document.getElementById("get-key-link");
-const modelsLink = document.getElementById("models-link");
+// Provider / base URL / model / API key fields, shared with the bulk download
+// page (transcriptProviderConfig.js). In bulk mode the run starts itself once
+// the saved settings are in the fields.
+const providerConfig = mountProviderConfig(document.getElementById("provider-config"), {
+  onLoaded: () => {
+    if (bulkMode) startBtn.click();
+  },
+});
+const { select: providerSelect, baseUrlInput, modelInput, apiKeyInput } = providerConfig;
 
 const CONCURRENCY = 6;
 
@@ -610,6 +612,24 @@ const cacheKey = lectureSlug || videoTitle;
 // What to transcribe: every part of a multi-part lecture (`parts`), or the
 // single stream in `url`.
 const streamParts = parseStreamParts(urlParams.get("parts"), m3u8Url);
+// Opened by the bulk download page for a lecture nobody has transcribed: start
+// on its own with the saved provider, and report the result back
+// (BULK_TRANSCRIPT_DONE) instead of downloading a file or showing alerts.
+const bulkMode = urlParams.get("mode") === "bulk";
+let bulkReported = false;
+
+function reportBulkResult(result) {
+  if (!bulkMode || bulkReported) return;
+  bulkReported = true;
+  try {
+    chrome.runtime.sendMessage(
+      { type: "BULK_TRANSCRIPT_DONE", classId, ...result },
+      () => void chrome.runtime.lastError,
+    );
+  } catch (_) {
+    /* the bulk page is gone; nothing to tell */
+  }
+}
 
 /**
  * The streams to transcribe, in order: `parts` (JSON [{label, url}] from a
@@ -719,211 +739,6 @@ if (cacheBtn) {
   }
   });
 }
-
-// ── Configuration Management ──
-
-const PROVIDER_DEFAULT_MODELS = {
-  groq: "whisper-large-v3-turbo",
-  deepgram: "nova-3",
-  openai: "gpt-transcribe",
-  elevenlabs: "scribe_v2",
-  custom: "",
-};
-
-/**
- * Defaults these providers used to ship with.
- *
- * A stored model that exactly matches an old default was never actually chosen
- * — it was just whatever the field happened to contain — so it gets upgraded to
- * the current default. Anything a user genuinely typed is left alone.
- */
-const SUPERSEDED_DEFAULT_MODELS = {
-  groq: ["whisper-large-v3"],
-  openai: ["whisper-1"],
-  elevenlabs: ["scribe_v1"],
-};
-
-function upgradeSupersededModel(provider, model) {
-  const superseded = SUPERSEDED_DEFAULT_MODELS[provider];
-  if (superseded && superseded.includes(model)) {
-    return PROVIDER_DEFAULT_MODELS[provider] || model;
-  }
-  return model;
-}
-
-/**
- * Settings are stored PER PROVIDER.
- *
- * Every provider needs its own key, base URL and model, so a single shared set
- * of fields meant switching Groq -> OpenAI -> Groq made you paste the Groq key
- * again. Shape:
- *
- *   { provider: "groq", providers: { groq: {baseUrl, model, apiKey}, ... } }
- *
- * `providerSettings` is the in-memory copy; the picker reads and writes it as
- * you switch, and every change is persisted.
- */
-let providerSettings = {};
-// The provider the visible fields currently belong to. `change` fires after
-// providerSelect.value has already moved, so the old value has to be tracked.
-let activeProvider = providerSelect.value;
-
-/** Is this provider still offered in the dropdown? */
-function isKnownProvider(provider) {
-  return Boolean(
-    provider && providerSelect.querySelector(`option[value="${provider}"]`),
-  );
-}
-
-function saveConfig() {
-  providerSettings[activeProvider] = {
-    baseUrl: baseUrlInput.value,
-    model: modelInput.value,
-    apiKey: apiKeyInput.value,
-  };
-
-  chrome.storage.local.set(
-    {
-      scaler_transcript_config: {
-        provider: providerSelect.value,
-        providers: providerSettings,
-      },
-    },
-    () => {
-      if (chrome.runtime.lastError) {
-        console.warn("Config save failed:", chrome.runtime.lastError.message);
-      }
-    },
-  );
-}
-
-/** Put a provider's remembered values into the visible fields. */
-function applyProviderSettings(provider) {
-  const saved = providerSettings[provider] || {};
-  const option = providerSelect.querySelector(`option[value="${provider}"]`);
-  const defaultUrl = option?.getAttribute("data-url") || "";
-
-  // Custom is the only provider whose URL is the user's to invent.
-  baseUrlInput.value = saved.baseUrl || defaultUrl;
-  modelInput.value =
-    saved.model !== undefined && saved.model !== ""
-      ? upgradeSupersededModel(provider, saved.model)
-      : PROVIDER_DEFAULT_MODELS[provider] || "";
-  apiKeyInput.value = saved.apiKey || "";
-  activeProvider = provider;
-}
-
-function loadConfig() {
-  chrome.storage.local.get(["scaler_transcript_config"], (result) => {
-    const config = result.scaler_transcript_config;
-
-    if (config) {
-      if (config.providers) {
-        providerSettings = config.providers;
-      } else if (config.baseUrl || config.model || config.apiKey) {
-        // Migrate the old single-slot shape onto whichever provider it belonged
-        // to, so nobody has to re-enter a key they already had.
-        providerSettings = {
-          [config.provider || providerSelect.value]: {
-            baseUrl: config.baseUrl || "",
-            model: config.model || "",
-            apiKey: config.apiKey || "",
-          },
-        };
-      }
-      // Only select a provider that still exists. A stored value for a
-      // provider that has since been removed leaves selectedIndex at -1, and
-      // every read of providerSelect.options[selectedIndex] then throws —
-      // taking the whole config block down and bricking the page.
-      if (config.provider && isKnownProvider(config.provider)) {
-        providerSelect.value = config.provider;
-      } else if (config.provider) {
-        console.warn(
-          `[Scaler++] Stored provider "${config.provider}" no longer exists — falling back to ${providerSelect.value}.`,
-        );
-      }
-    }
-
-    applyProviderSettings(providerSelect.value);
-    updateProviderLink(false);
-  });
-}
-
-function updateProviderLink(applySaved = true) {
-  if (providerSelect.selectedIndex < 0) providerSelect.selectedIndex = 0;
-  const selectedOption = providerSelect.options[providerSelect.selectedIndex];
-  if (!selectedOption) return;
-  const url = selectedOption.getAttribute("data-url");
-  const link = selectedOption.getAttribute("data-link");
-  const modelsUrl = selectedOption.getAttribute("data-models");
-
-  // Switching provider restores that provider's own key/model/URL rather than
-  // resetting to the default and discarding what worked last time.
-  if (applySaved) {
-    applyProviderSettings(providerSelect.value);
-  } else if (providerSelect.value !== "custom" && url && !baseUrlInput.value) {
-    baseUrlInput.value = url;
-  }
-
-  const defaultModel = PROVIDER_DEFAULT_MODELS[providerSelect.value];
-  const hasModel = defaultModel !== undefined && defaultModel !== "";
-
-  if (hasModel || providerSelect.value === "custom") {
-    modelInput.style.display = "block";
-    if (modelLabel) modelLabel.style.display = "block";
-  } else {
-    modelInput.style.display = "none";
-    if (modelLabel) modelLabel.style.display = "none";
-  }
-
-  if (link) {
-    getKeyLink.href = link;
-    getKeyLink.innerText = `Get API Key for ${selectedOption.text.split(" (")[0]}`;
-    getKeyLink.style.display = "inline-block";
-  } else {
-    getKeyLink.style.display = "none";
-  }
-
-  if (modelsLink) {
-    if (modelsUrl) {
-      modelsLink.href = modelsUrl;
-      modelsLink.style.display = "inline-block";
-    } else {
-      modelsLink.style.display = "none";
-    }
-  }
-
-  saveConfig();
-}
-
-providerSelect.addEventListener("change", () => {
-  // Persist the fields under the provider they belong to BEFORE switching away.
-  saveConfig();
-  updateProviderLink(true);
-});
-baseUrlInput.addEventListener("input", saveConfig);
-modelInput.addEventListener("input", saveConfig);
-apiKeyInput.addEventListener("input", saveConfig);
-
-// Toggle API Key visibility
-const toggleApiKeyBtn = document.getElementById("toggle-api-key-btn");
-if (toggleApiKeyBtn) {
-  const EYE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
-  const EYE_OFF_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
-
-  toggleApiKeyBtn.addEventListener("click", () => {
-    if (apiKeyInput.type === "password") {
-      apiKeyInput.type = "text";
-      toggleApiKeyBtn.innerHTML = EYE_OFF_SVG;
-    } else {
-      apiKeyInput.type = "password";
-      toggleApiKeyBtn.innerHTML = EYE_SVG;
-    }
-  });
-}
-
-// Initialize config
-loadConfig();
 
 // ── M3U8 Download Helpers ──
 
@@ -1240,7 +1055,14 @@ startBtn.addEventListener("click", async () => {
   const effectiveModel = CustomAudioTranscriber.resolveModel(baseUrl, modelName);
 
   if (!baseUrl || !apiKey) {
-    alert("Please provide both Base URL and API Key.");
+    if (bulkMode) {
+      reportBulkResult({
+        ok: false,
+        error: "No API key saved — open any lecture's transcript page, save a provider key, then retry.",
+      });
+    } else {
+      alert("Please provide both Base URL and API Key.");
+    }
     return;
   }
 
@@ -1249,11 +1071,13 @@ startBtn.addEventListener("click", async () => {
   if (providerSelect.value === "custom") {
     const v = validateCustomInputs(baseUrl, modelName);
     if (!v.ok) {
-      alert(v.reason);
+      if (bulkMode) reportBulkResult({ ok: false, error: v.reason });
+      else alert(v.reason);
       return;
     }
     if (
       v.warnSuggestedUrl &&
+      !bulkMode &&
       !confirm(
         "This Base URL doesn't look like an OpenAI-compatible transcription " +
           'endpoint (expected it to end in "/audio/transcriptions").\n\n' +
@@ -1262,7 +1086,7 @@ startBtn.addEventListener("click", async () => {
       )
     ) {
       baseUrlInput.value = v.warnSuggestedUrl;
-      saveConfig();
+      providerConfig.save();
       statusText.innerText = "Base URL updated — press Start Transcription again.";
       return;
     }
@@ -1281,7 +1105,9 @@ startBtn.addEventListener("click", async () => {
     // ── Same lecture, same model, already transcribed? ──────────
     // Offer that version before spending API credits on an equivalent run.
     statusText.innerText = "Checking for an existing transcript...";
-    const cachedVersion = await findCachedSameModel(effectiveModel);
+    // Bulk mode runs in a hidden tab nobody can answer a dialog in, and the
+    // bulk page only opens it after finding no cached transcript at all.
+    const cachedVersion = bulkMode ? null : await findCachedSameModel(effectiveModel);
     if (cachedVersion) {
       log(`Found an existing ${effectiveModel} transcript for this lecture.`);
       const choice = await promptUseCached(cachedVersion, effectiveModel);
@@ -1384,7 +1210,8 @@ startBtn.addEventListener("click", async () => {
       console.error("[Scaler++] Error adding metadata to generated download:", e);
     }
 
-    saveTextFile(finalTranscript);
+    // Bulk mode: the bulk page writes the file itself.
+    if (!bulkMode) saveTextFile(finalTranscript);
 
     const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
     const wordCount = transcript.split(/\s+/).length;
@@ -1445,12 +1272,16 @@ startBtn.addEventListener("click", async () => {
     // now one version among however many others exist, and comparing them is
     // the whole point of keeping them all.
     offerVersionsLink();
+    // `partial`: some chunks failed, so it wasn't cached — the bulk page says so.
+    reportBulkResult({ ok: true, text: finalTranscript, partial: hasFailures });
   } catch (err) {
+    reportBulkResult({ ok: false, error: err.message });
     log(`❌ Error: ${err.message}`);
     console.error(err);
     statusText.innerText = "Transcript Failed!";
     progressBar.style.background = "#ef4444";
   } finally {
+    reportBulkResult({ ok: false, error: statusText.innerText || "Transcription stopped." });
     startBtn.disabled = false;
     if (cacheBtn) cacheBtn.disabled = false;
     providerSelect.disabled = false;
@@ -1459,79 +1290,3 @@ startBtn.addEventListener("click", async () => {
     apiKeyInput.disabled = false;
   }
 });
-
-async function fetchMetadataHeader(classId, attribution = {}) {
-  if (!classId) return "";
-  
-  let courseName = "N/A";
-  let title = "N/A";
-  let startTime = "N/A";
-  let duration = "N/A";
-
-  try {
-    const [sessionRes, metaRes] = await Promise.allSettled([
-      fetch(`https://www.scaler.com/api/v2/classroom/${classId}/session`, { credentials: "include" }),
-      fetch(`https://www.scaler.com/api/v2/classroom/${classId}/meta`, { credentials: "include" })
-    ]);
-
-    if (sessionRes.status === "fulfilled" && sessionRes.value.ok) {
-      try {
-        const sessionJson = await sessionRes.value.json();
-        const batchLesson = sessionJson?.data?.attributes?.batch_lesson;
-        if (batchLesson) {
-          title = batchLesson.title || "N/A";
-          startTime = batchLesson.start_time || "N/A";
-          duration = batchLesson.duration || "N/A";
-        }
-      } catch (e) {
-        console.error("[Scaler++] Error parsing session metadata:", e);
-      }
-    }
-
-    if (metaRes.status === "fulfilled" && metaRes.value.ok) {
-      try {
-        const metaJson = await metaRes.value.json();
-        courseName = metaJson?.data?.attributes?.academy_module?.name || "N/A";
-      } catch (e) {
-        console.error("[Scaler++] Error parsing meta metadata:", e);
-      }
-    }
-  } catch (err) {
-    console.error("[Scaler++] Error fetching classroom metadata:", err);
-  }
-
-  // Format Start Time
-  let formattedStartTime = startTime;
-  if (startTime && startTime !== "N/A") {
-    try {
-      const date = new Date(startTime);
-      if (!isNaN(date.getTime())) {
-        formattedStartTime = date.toLocaleString();
-      }
-    } catch (e) {}
-  }
-
-  // Format Duration
-  let formattedDuration = duration;
-  if (typeof duration === "number") {
-    formattedDuration = `${duration} minutes`;
-  } else if (duration && duration !== "N/A") {
-    formattedDuration = `${duration} minutes`;
-  }
-
-  // Attribution: which model produced the transcript. Older cached transcripts
-  // predate these fields, so fall back to N/A rather than omitting the line —
-  // keeps the header shape stable across downloads.
-  const modelUsed = [attribution.provider, attribution.model]
-    .filter(Boolean)
-    .join(", ") || "N/A";
-
-  return `Course Name: ${courseName}\n` +
-         `Lecture Title: ${title}\n` +
-         `Start Time: ${formattedStartTime}\n` +
-         `Duration: ${formattedDuration}\n` +
-         `Model use: ${modelUsed}\n` +
-         `Downloaded via: Scaler++ Chrome Extension\n` +
-         `Developer: Ritesh prajapati\n\n` +
-         `==================================================\n\n`;
-}

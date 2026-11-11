@@ -182,6 +182,11 @@ partial transcript never poisons the cache.
 
 ## Provider configuration (processor page)
 
+Rendered by `mountProviderConfig()` in
+[transcriptProviderConfig.js](../extension-main/content/features/videoDownloader/transcriptProviderConfig.js)
+(styles in `transcriptProviderConfig.css`), which the bulk download page mounts too — both pages show
+the same fields and share the saved settings.
+
 Provider dropdown + Base URL + Model + API key, persisted in `chrome.storage`, with a
 "get an API key" link and a "browse available models" link per provider, and an eye toggle for
 the key field.
@@ -284,9 +289,21 @@ part's text. The result is cached as one version, like any other transcript.
 The downloader refuses to start a transcript when any part's stream is missing: a transcript
 without a part would be cached as the whole lecture's.
 
+## Bulk mode
+
+The bulk download page ([bulk-download.md](bulk-download.md)) opens this page in a background
+tab with `mode=bulk` for each lecture nobody has transcribed. It then starts on its own once the
+saved provider config is loaded (the click is deferred so it never races the Start listener),
+never shows `alert`/`confirm` (a missing key or bad custom URL is reported instead), caches the
+transcript as usual but skips its own file download, and answers the bulk page exactly once
+with `BULK_TRANSCRIPT_DONE { ok, text, partial }` or `{ ok: false, error }` — a `finally` guard
+reports any other way the run ends.
+
 ## Output
 
-`fetchMetadataHeader(classId, attribution)` fetches `/api/v2/classroom/{id}/session` and `/meta` in
+`fetchMetadataHeader(classId, attribution)` — in
+[transcriptHeader.js](../extension-main/content/features/videoDownloader/transcriptHeader.js), shared by
+the processor, the versions page and the bulk download page — fetches `/api/v2/classroom/{id}/session` and `/meta` in
 parallel (`Promise.allSettled`) and prepends:
 
 ```

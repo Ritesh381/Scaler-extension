@@ -66,7 +66,14 @@ function loadProcessor({ versions, choice }) {
   // one bundle, in the page's order.
   const { window } = loadFeature([], { html: PAGE_HTML, url: PAGE_URL, chrome, fetch });
   window.eval(
-    ["tsAudioExtractor.js", "customAudioTranscriber.js", "transcriptRanking.js", "transcriptProcessor.js"]
+    [
+      "tsAudioExtractor.js",
+      "transcriptHeader.js",
+      "customAudioTranscriber.js",
+      "transcriptProviderConfig.js",
+      "transcriptRanking.js",
+      "transcriptProcessor.js",
+    ]
       .map((f) => readFeature(`${DIR}/${f}`))
       .join("\n;\n"),
   );
@@ -92,6 +99,8 @@ function loadProcessor({ versions, choice }) {
 }
 
 async function start(window) {
+  // The provider fields fill from storage on a deferred load; wait for it.
+  await tick(10);
   window.document.getElementById("start-btn").click();
   // Let the async handler run to the end (it re-enables the button).
   for (let i = 0; i < 40; i++) {

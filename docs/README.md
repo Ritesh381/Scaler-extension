@@ -21,6 +21,7 @@ message routing, SPA handling. Every feature doc assumes it.
 | [theme-manager.md](theme-manager.md) — dark mode + 6 themes, anti-FOUC preload | `theme` | `dark` |
 | [video-downloader.md](video-downloader.md) — recording download (video/audio) | `video-downloader` | on |
 | [lecture-transcript.md](lecture-transcript.md) — transcription + shared cache | (transcript option of the downloader) | — |
+| [bulk-download.md](bulk-download.md) — transcripts/video/audio for a range of lectures ([reviewer guide](bulk-download-reviewer-guide.md)) | `bulk-download` | on |
 | [lecture-summary.md](lecture-summary.md) — AI lecture notes tab | `lecture-summary` | on |
 | [lecture-info.md](lecture-info.md) — subject/instructor pills on dashboard cards | `lecture-info` | on |
 | [instructor-info.md](instructor-info.md) — instructor pills + session tab | `instructor-info` | on |

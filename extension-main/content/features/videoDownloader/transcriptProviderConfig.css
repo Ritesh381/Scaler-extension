@@ -1,0 +1,111 @@
+/* ============================================================
+   transcriptProviderConfig.css
+   The provider fields rendered by mountProviderConfig()
+   (transcriptProviderConfig.js) — shared by the transcript page and the bulk
+   download page.
+   ============================================================ */
+
+.config-section {
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.config-section label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a1a1aa;
+  margin-bottom: 6px;
+}
+
+.config-section input,
+.config-section select {
+  width: 100%;
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.config-section input:focus,
+.config-section select:focus {
+  border-color: #3484f0;
+}
+
+.api-key-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.api-key-container input {
+  margin-bottom: 0 !important;
+  padding-right: 40px !important;
+}
+
+.toggle-api-key-btn {
+  position: absolute;
+  right: 4px;
+  background: transparent !important;
+  border: none !important;
+  color: #71717a !important;
+  cursor: pointer;
+  padding: 8px !important;
+  width: auto !important;
+  font-size: 16px;
+  box-shadow: none !important;
+  transform: none !important;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggle-api-key-btn:hover {
+  color: #e4e4e7 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.privacy-note {
+  font-size: 11px;
+  color: #10b981;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.service-link {
+  color: #3484f0;
+  text-decoration: none;
+  font-size: 12px;
+  display: inline-block;
+  margin-bottom: 14px;
+}
+
+/* The key link and the models link sit on one row, separated by a divider. */
+#models-link {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid #3f3f46;
+  color: #a1a1aa;
+}
+
+#models-link:hover {
+  color: #3484f0;
+}
+
+.service-link:hover {
+  text-decoration: underline;
+}

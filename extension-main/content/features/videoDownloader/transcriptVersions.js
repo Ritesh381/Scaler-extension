@@ -397,7 +397,7 @@ async function downloadVersion(node, version) {
   let finalText = text;
   try {
     if (classId) {
-      const header = await buildMetadataHeader(classId, {
+      const header = await fetchMetadataHeader(classId, {
         provider: version.provider,
         model: version.model,
       });
@@ -448,64 +448,6 @@ async function downloadVersion(node, version) {
 
   dlBtn.disabled = false;
   showToast("Downloaded — vote if it was any good.", "good");
-}
-
-// ── Metadata header (mirrors the other download paths) ─────────────────
-
-async function buildMetadataHeader(id, attribution = {}) {
-  if (!id) return "";
-
-  let courseName = "N/A";
-  let title = "N/A";
-  let startTime = "N/A";
-  let duration = "N/A";
-
-  try {
-    const [sessionRes, metaRes] = await Promise.allSettled([
-      fetch(`https://www.scaler.com/api/v2/classroom/${id}/session`, { credentials: "include" }),
-      fetch(`https://www.scaler.com/api/v2/classroom/${id}/meta`, { credentials: "include" }),
-    ]);
-
-    if (sessionRes.status === "fulfilled" && sessionRes.value.ok) {
-      const sessionJson = await sessionRes.value.json();
-      const batchLesson = sessionJson?.data?.attributes?.batch_lesson;
-      if (batchLesson) {
-        title = batchLesson.title || "N/A";
-        startTime = batchLesson.start_time || "N/A";
-        duration = batchLesson.duration || "N/A";
-      }
-    }
-
-    if (metaRes.status === "fulfilled" && metaRes.value.ok) {
-      const metaJson = await metaRes.value.json();
-      courseName = metaJson?.data?.attributes?.academy_module?.name || "N/A";
-    }
-  } catch (err) {
-    console.error("[Scaler++] Error fetching classroom metadata:", err);
-  }
-
-  let formattedStartTime = startTime;
-  if (startTime && startTime !== "N/A") {
-    const date = new Date(startTime);
-    if (!Number.isNaN(date.getTime())) formattedStartTime = date.toLocaleString();
-  }
-
-  const formattedDuration =
-    duration && duration !== "N/A" ? `${duration} minutes` : duration;
-
-  const modelUsed =
-    [attribution.provider, attribution.model].filter(Boolean).join(", ") || "N/A";
-
-  return (
-    `Course Name: ${courseName}\n` +
-    `Lecture Title: ${title}\n` +
-    `Start Time: ${formattedStartTime}\n` +
-    `Duration: ${formattedDuration}\n` +
-    `Model use: ${modelUsed}\n` +
-    `Downloaded via: Scaler++ Chrome Extension\n` +
-    `Developer: Ritesh prajapati\n\n` +
-    `==================================================\n\n`
-  );
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────

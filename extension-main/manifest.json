@@ -85,6 +85,7 @@
         "content/features/contestLeaderboard.js",
         "content/features/videoDownloader/playlistCapture.js",
         "content/features/videoDownloader/videoDownloader.js",
+        "content/features/bulkDownload/bulkDownload.js",
         "content/features/customMessage.js",
         "content/features/problemPicker.js",
         "content/features/usernameTracker.js",
@@ -109,7 +110,8 @@
       ],
       "css": [
         "content/features/liveStreamRecorder/liveStreamRecorder.css",
-        "content/features/vimMode/vimMode.css"
+        "content/features/vimMode/vimMode.css",
+        "content/features/bulkDownload/bulkDownload.css"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"

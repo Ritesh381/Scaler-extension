@@ -254,6 +254,15 @@ function computeMatchConfidence({
   return { confidence, titleScore, stmtScore, exactTitle };
 }
 
+/**
+ * The numeric class id in a Scaler class URL ("/class/12345/…"), or null.
+ * @param {string} href absolute or relative URL
+ */
+function extractClassId(href) {
+  const match = String(href || "").match(/\/class\/(\d+)/);
+  return match ? match[1] : null;
+}
+
 // Make helpers reachable when this file is loaded via importScripts() in the
 // service worker (where there is no DOM but globalThis exists). In content
 // scripts the top-level function declarations are already global.

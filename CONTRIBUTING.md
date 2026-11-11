@@ -69,6 +69,7 @@ Scaler-DOM-Cleaner/
 │       ├── cleaner/             ← DOM cleaner engine, selectors, handlers
 │       ├── features/            ← Feature modules
 │       │   ├── videoDownloader/ ← Lecture download & transcription
+│       │   ├── bulkDownload/    ← Bulk download from a subject's class list
 │       │   ├── problemSearch.js
 │       │   ├── practiceMode.js
 │       │   ├── leetcodeLink.js

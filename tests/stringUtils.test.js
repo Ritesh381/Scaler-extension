@@ -61,3 +61,11 @@ test("normalizeTitleForCache strips everything but alphanumerics", () => {
   assert.equal(normalizeTitleForCache("Two Sum - II (Easy)!"), "twosumiieasy");
   assert.equal(normalizeTitleForCache("A_B.C"), "abc");
 });
+
+test("extractClassId reads the id from absolute and relative class URLs", () => {
+  const { window } = loadFeature("content/utils/stringUtils.js");
+  assert.equal(window.extractClassId("https://www.scaler.com/academy/mentee-dashboard/class/12345/session"), "12345");
+  assert.equal(window.extractClassId("/academy/mentee-dashboard/class/678/assignment/problems/1"), "678");
+  assert.equal(window.extractClassId("/academy/mentee-dashboard/todos"), null);
+  assert.equal(window.extractClassId(undefined), null);
+});
