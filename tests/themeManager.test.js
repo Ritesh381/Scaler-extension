@@ -578,3 +578,58 @@ test("applyFilterToRgb matches what Chromium renders", () => {
   assert.deepEqual(rgb(window.applyFilterToRgb("invert(1) brightness(0.5)", white)), [0, 0, 0]);
   assert.deepEqual(rgb(window.applyFilterToRgb("brightness(0.4) invert(1)", white)), [153, 153, 153]);
 });
+
+// ── Hot-path cost (observer flush, settings writes) ──────────────────────────
+
+test("applyThemeIfChanged skips a re-theme when the theme didn't change", () => {
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("dark");
+  const style = window.document.getElementById(STYLE_ID);
+  let writes = 0;
+  new window.MutationObserver((r) => (writes += r.length)).observe(style, { childList: true, characterData: true, subtree: true });
+
+  window.applyThemeIfChanged("dark");
+  return new Promise((resolve) => setTimeout(resolve, 0)).then(() => {
+    assert.equal(writes, 0, "stylesheet untouched");
+    window.applyThemeIfChanged("off");
+    assert.ok(!window.document.documentElement.classList.contains(ROOT_CLASS), "a real change still applies");
+  });
+});
+
+test("a settings write that leaves the theme alone does not re-theme", () => {
+  const listeners = [];
+  const chrome = makeChrome();
+  chrome.storage.onChanged = { addListener: (fn) => listeners.push(fn) };
+  const { window } = loadFeature(THEME_FILE, { chrome });
+  window.applyTheme("dark");
+  let applied = 0;
+  const real = window.applyTheme;
+  // applyThemeIfChanged calls applyTheme by its global name.
+  window.eval("applyTheme = function (id) { window.__applied = (window.__applied || 0) + 1; }");
+  listeners.forEach((fn) =>
+    fn({ cleanerSettings: { oldValue: { theme: "dark", x: 1 }, newValue: { theme: "dark", x: 2 } } }, "sync"),
+  );
+  applied = window.__applied || 0;
+  window.applyTheme = real;
+  assert.equal(applied, 0);
+});
+
+test("dark regions in several added subtrees are flagged in one pass, nested ones once", () => {
+  const { window } = loadFeature(THEME_FILE);
+  window.applyTheme("dark");
+  const doc = window.document;
+  const outer = doc.createElement("div");
+  outer.style.backgroundColor = "rgb(10, 10, 10)";
+  const inner = doc.createElement("div");
+  inner.style.backgroundColor = "rgb(12, 12, 12)";
+  outer.appendChild(inner);
+  const other = doc.createElement("section");
+  other.style.backgroundColor = "rgb(5, 5, 5)";
+  doc.body.append(outer, other);
+
+  window.neutralizeDarkRegions(outer);
+  window.neutralizeDarkRegions(other);
+  const flagged = Array.from(doc.querySelectorAll(".scaler-no-invert"));
+  assert.ok(flagged.includes(outer) && flagged.includes(other), "both regions flagged");
+  assert.ok(!flagged.includes(inner), "a dark child of a flagged region is not flagged again");
+});

@@ -25,7 +25,18 @@
   // Per-URL cache so repeated tab opens don't refetch the slug/title.
   const _lectureCache = { url: "", promise: null };
   // Cache transcript text per slug so Generate doesn't refetch a huge payload.
+  // Capped: a 3 h transcript is ~150 KB and this lives for the whole tab.
   const _transcriptTextCache = new Map();
+  const TRANSCRIPT_TEXT_CACHE_MAX = 2;
+
+  /** Remember a transcript, evicting the least recently stored past the cap. */
+  function _cacheTranscriptText(slug, text) {
+    _transcriptTextCache.delete(slug); // re-insert as newest
+    _transcriptTextCache.set(slug, text);
+    while (_transcriptTextCache.size > TRANSCRIPT_TEXT_CACHE_MAX) {
+      _transcriptTextCache.delete(_transcriptTextCache.keys().next().value);
+    }
+  }
 
   function _isSessionPage() {
     const url = new URL(location.href);
@@ -601,7 +612,7 @@
       const r = await _sendMessage({ action: "checkTranscriptCache", slug: lecture.slug });
       if (r?.success && r.data?.cached && r.data.text) {
         text = r.data.text;
-        _transcriptTextCache.set(lecture.slug, text);
+        _cacheTranscriptText(lecture.slug, text);
       }
     }
     if (!text) {
@@ -920,7 +931,7 @@
       });
       if (tResp?.success && tResp.data?.cached && tResp.data.text) {
         transcript = tResp.data.text;
-        _transcriptTextCache.set(lecture.slug, transcript);
+        _cacheTranscriptText(lecture.slug, transcript);
       }
     }
     if (!transcript) {
@@ -1038,7 +1049,7 @@
       slug: lecture.slug,
     });
     if (tResp?.success && tResp.data?.cached) {
-      if (tResp.data.text) _transcriptTextCache.set(lecture.slug, tResp.data.text);
+      if (tResp.data.text) _cacheTranscriptText(lecture.slug, tResp.data.text);
       _renderGenerate(panel, lecture);
       return;
     }

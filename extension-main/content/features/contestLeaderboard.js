@@ -13,6 +13,33 @@ function extractContestId() {
   return match ? match[1] : null;
 }
 
+// contestId -> { alias, failures, nextTryAt }. Without it, a contest whose
+// alias lookup fails was re-fetched on every debounced DOM change (a ticking
+// contest timer means one request every few hundred ms, forever).
+const _contestAliasCache = new Map();
+const CONTEST_ALIAS_MAX_FAILURES = 3;
+const CONTEST_ALIAS_RETRY_MS = 10000;
+
+/**
+ * Cached alias lookup: one request per contest when it works, at most
+ * CONTEST_ALIAS_MAX_FAILURES spaced-out tries when it doesn't.
+ */
+async function getContestAlias(contestId) {
+  const entry = _contestAliasCache.get(contestId) || { alias: null, failures: 0, nextTryAt: 0 };
+  if (entry.alias) return entry.alias;
+  if (entry.failures >= CONTEST_ALIAS_MAX_FAILURES || Date.now() < entry.nextTryAt) return null;
+
+  const alias = await fetchContestAlias(contestId);
+  if (alias) {
+    entry.alias = alias;
+  } else {
+    entry.failures += 1;
+    entry.nextTryAt = Date.now() + CONTEST_ALIAS_RETRY_MS;
+  }
+  _contestAliasCache.set(contestId, entry);
+  return alias;
+}
+
 async function fetchContestAlias(contestId) {
   try {
     const url = `https://www.scaler.com/api/v2/classroom/${contestId}/contest`;
@@ -124,7 +151,7 @@ async function enableContestLeaderboard() {
     }
 
     // Fetch alias
-    const alias = await fetchContestAlias(contestId);
+    const alias = await getContestAlias(contestId);
     if (!alias) {
       console.warn("[Scaler++] Could not fetch contest alias for ID:", contestId);
       return;
@@ -140,10 +167,33 @@ async function enableContestLeaderboard() {
 
 let _leaderboardFetchInProgress = false;
 
-function observeForLeaderboard() {
-  if (window._leaderboardObserver) return; // Already watching
+let _leaderboardDebounceTimer = null;
 
-  let _leaderboardDebounceTimer = null;
+/** Stop watching: on toggle-off and on leaving a contest page. */
+function stopContestLeaderboard() {
+  clearTimeout(_leaderboardDebounceTimer);
+  _leaderboardDebounceTimer = null;
+  if (window._leaderboardObserver) {
+    window._leaderboardObserver.disconnect();
+    window._leaderboardObserver = null;
+  }
+  window._leaderboardObserverRoot = null;
+}
+
+function observeForLeaderboard() {
+  // Scope to the contest page content if possible, fall back to body.
+  const contestRoot =
+    document.querySelector(".classroom-contest") ||
+    document.querySelector(".cr-stats-container") ||
+    document.body;
+
+  // Already watching the live root. A root the SPA has since replaced would
+  // pin the old DOM and miss the new one, so re-root in that case.
+  if (window._leaderboardObserver) {
+    const root = window._leaderboardObserverRoot;
+    if (root === contestRoot && root.isConnected) return;
+    stopContestLeaderboard();
+  }
 
   const observer = new MutationObserver(() => {
     if (currentSettings["contest-leaderboard"] === false) return;
@@ -156,19 +206,17 @@ function observeForLeaderboard() {
     }, 300);
   });
 
-  // Scope to the contest page content if possible, fall back to body.
-  const contestRoot =
-    document.querySelector(".classroom-contest") ||
-    document.querySelector(".cr-stats-container") ||
-    document.body;
-
   observer.observe(contestRoot, { childList: true, subtree: true });
   window._leaderboardObserver = observer;
+  window._leaderboardObserverRoot = contestRoot;
 }
 
+/** Safe to call on every navigation: stops itself off contest pages. */
 function initContestLeaderboard() {
-  if (!isContestPage()) return;
-  if (currentSettings["contest-leaderboard"] === false) return;
+  if (!isContestPage() || currentSettings["contest-leaderboard"] === false) {
+    stopContestLeaderboard();
+    return;
+  }
 
   enableContestLeaderboard();
   observeForLeaderboard();

@@ -205,8 +205,18 @@ async function _injectInstructorInfo() {
 }
 
 function _observeDashboardForInstructorInfo() {
-  if (window._instructorInfoObserver_lecture) return;
   if (!_isTodosDashboard()) return;
+  const liveRoot =
+    document.querySelector(".mentee-dashboard__content") ||
+    document.querySelector(".mentee-dashboard") ||
+    document.body;
+  if (window._instructorInfoObserver_lecture) {
+    // Re-root if the SPA replaced the subtree we were watching.
+    const watched = window._instructorInfoObserverRoot_lecture;
+    if (watched === liveRoot && watched.isConnected) return;
+    window._instructorInfoObserver_lecture.disconnect();
+    window._instructorInfoObserver_lecture = null;
+  }
 
   let debounceTimer = null;
   const observer = new MutationObserver(() => {
@@ -225,6 +235,7 @@ function _observeDashboardForInstructorInfo() {
 
   observer.observe(root, { childList: true, subtree: true });
   window._instructorInfoObserver_lecture = observer;
+  window._instructorInfoObserverRoot_lecture = root;
 }
 
 global.initLectureInfo = function() {

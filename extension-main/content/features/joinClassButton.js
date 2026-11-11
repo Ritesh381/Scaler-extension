@@ -228,7 +228,20 @@ function injectJoinSessionButtons() {
  * (e.g., after a soft navigation) also get evaluated.
  */
 function observeDashboardForClassCards() {
-  if (window._joinSessionObserver) return; // already watching
+  // Scope to the dashboard content area if available, fall back to body.
+  // Narrowing the scope dramatically reduces how often the observer fires.
+  const dashboardRoot =
+    document.querySelector(".mentee-dashboard__content") ||
+    document.querySelector(".mentee-dashboard") ||
+    document.body;
+
+  // Already watching the live root. If the SPA replaced it, the observer
+  // would pin the old subtree and never see new cards: re-root.
+  if (window._joinSessionObserver) {
+    const root = window._joinSessionObserverRoot;
+    if (root === dashboardRoot && root.isConnected) return;
+    stopJoinSessionObserver();
+  }
 
   // Debounce: collapse rapid DOM mutation bursts into one evaluation.
   let _joinDebounceTimer = null;
@@ -238,23 +251,27 @@ function observeDashboardForClassCards() {
     _joinDebounceTimer = setTimeout(injectJoinSessionButtons, 200);
   });
 
-  // Scope to the dashboard content area if available, fall back to body.
-  // Narrowing the scope dramatically reduces how often the observer fires.
-  const dashboardRoot =
-    document.querySelector(".mentee-dashboard__content") ||
-    document.querySelector(".mentee-dashboard") ||
-    document.body;
-
   observer.observe(dashboardRoot, { childList: true, subtree: true });
   window._joinSessionObserver = observer;
+  window._joinSessionObserverRoot = dashboardRoot;
+}
+
+function stopJoinSessionObserver() {
+  if (window._joinSessionObserver) {
+    window._joinSessionObserver.disconnect();
+    window._joinSessionObserver = null;
+  }
+  window._joinSessionObserverRoot = null;
 }
 
 /**
  * Entry point — only activate on the mentee dashboard.
  */
 function initJoinSessionButtons() {
-  if (!location.href.includes("mentee-dashboard")) return;
-  if (currentSettings["join-session"] === false) return;
+  if (!location.href.includes("mentee-dashboard") || currentSettings["join-session"] === false) {
+    stopJoinSessionObserver();
+    return;
+  }
 
   injectJoinSessionButtons();
   observeDashboardForClassCards();

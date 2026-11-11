@@ -97,7 +97,7 @@ Content script → service worker (`chrome.runtime.sendMessage`), by action/type
 | `fetchCustomMessages`, `syncUserProfile`, `trackDownload`, `proxyButtonClick`, `checkTranscriptCache`, `saveTranscriptToCache` | `background/messagesProxy.js` | Scaler++ backend proxy |
 | `checkSummaryCache`, `saveSummary`, `generateSummary` | `background/summaryProxy.js` | notes cache + user's LLM |
 | `SYNC_CALENDAR`, `CALENDAR_SYNC_TOGGLED` | `background/calendarSync.js` | Google Calendar |
-| `FETCH_PROXY` | `videoDownloader.js` (content-script listener) | CORS proxy for HLS chunks |
+| `FETCH_PROXY` | `videoDownloader.js` (content-script listener) | CORS proxy for HLS chunks; binary replies are base64 (`encoding: "base64"`) |
 
 Page world ↔ isolated world:
 
@@ -114,16 +114,21 @@ once and must survive every route change itself.
 
 [core/urlObserver.js](../extension-main/content/core/urlObserver.js) handles detection:
 
-- patches `history.pushState` / `history.replaceState`,
 - listens for `popstate`,
-- plus a `MutationObserver` on `document.body` as a backstop for routers that change the URL
-  without either,
-- everything funnels into `handleUrlChange()`, debounced 300 ms, which re-runs `runCleanup()` at
-  +1.5 s and +3 s (Scaler renders progressively, so one pass is not enough).
+- listens for the Navigation API's `currententrychange` (Chrome 102+). Patching
+  `history.pushState` from a content script would not work: content scripts run in an isolated
+  world and never see the page's own `pushState` calls,
+- starts a `MutationObserver` on `document.body` that compares `location.href`, as a fallback.
+  The first Navigation API event disconnects it, so on current Chrome it does not keep running,
+- everything funnels into `handleUrlChange()`, debounced 300 ms. When the URL actually changed it
+  re-runs `runCleanup()` at +1.5 s and +3 s (Scaler renders progressively, so one pass is not
+  enough) and calls every hook registered with `onUrlChange(fn)`.
 
-`content.js` then *wraps* `handleUrlChange` to also re-init the per-page features (problem search,
+`content.js` registers one `onUrlChange` hook that re-inits the per-page features (problem search,
 LeetCode link, join buttons, lecture/instructor/summary tabs, subject sort, contest leaderboard,
-problem picker, Vim mode, assignment export).
+problem picker, Vim mode, assignment export). Hooks run once per real URL change, never for a
+same-URL `replaceState`. Subject sort and contest leaderboard are called on every navigation and
+stop their own observers off their pages.
 
 **Consequence: every feature's `initX()` must be idempotent.** The standard patterns used in this
 codebase are: an injection guard attribute (`data-*-injected`), an `#id` existence check, or a

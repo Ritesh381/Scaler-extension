@@ -58,6 +58,9 @@ is stripped it returns the original name.
 - on the todos dashboard → inject + `_observeDashboardForInstructorInfo()`;
 - anywhere else → disconnect and null `window._instructorInfoObserver_lecture`.
 
+If the SPA replaced the dashboard container since the observer was created (root kept in
+`window._instructorInfoObserverRoot_lecture`), the next init re-roots it onto the new one.
+
 The observer is debounced 300 ms and scoped to `.mentee-dashboard__content` →
 `.mentee-dashboard` → `document.body`, guarded against double-creation.
 

@@ -20,13 +20,31 @@ const SUBJECT_KEYWORDS = [
   "prep-",
 ];
 
+function isSubjectSortPage() {
+  return window.location.href.includes("/core-curriculum");
+}
+
+/**
+ * Sort the subject list, and keep watching it while on a curriculum page.
+ * Safe to call on every navigation: off the page, or with the feature off,
+ * it stops the observer instead.
+ */
 function initSubjectSort() {
   if (!shouldHide("subject-sort")) {
+    stopSubjectSortObserver();
     restoreSubjectSort();
     return;
   }
 
-  if (!window.location.href.includes("/core-curriculum")) return;
+  if (!isSubjectSortPage()) {
+    stopSubjectSortObserver();
+    return;
+  }
+  observeSubjectList();
+  sortSubjects();
+}
+
+function sortSubjects() {
 
   const container = document.querySelector(".m-l-20.m-r-20.m-t-20");
   if (!container) return;
@@ -111,32 +129,50 @@ function restoreSubjectSort() {
       const numEl = div.querySelector(".ZV1LrApmcV6Ae3HM7BSTK");
       if (numEl && numEl.hasAttribute("data-original-text")) {
         numEl.textContent = numEl.getAttribute("data-original-text");
+        // Drop the marker so a second restore is a no-op, not another mutation.
+        numEl.removeAttribute("data-original-text");
       }
     });
   }
 }
 
+let _subjectSortDebounce = null;
+
+function stopSubjectSortObserver() {
+  clearTimeout(_subjectSortDebounce);
+  _subjectSortDebounce = null;
+  if (window._subjectSortObserver) {
+    window._subjectSortObserver.disconnect();
+    window._subjectSortObserver = null;
+  }
+}
+
+/**
+ * The subject list renders late and re-renders on SPA updates. Watch for it,
+ * debounced, and only ever sort from here — never restore, which used to
+ * re-trigger the observer in a loop.
+ */
 function observeSubjectList() {
   if (window._subjectSortObserver) return; // already watching
 
   const observer = new MutationObserver(() => {
-    if (window.location.href.includes("/core-curriculum")) {
-      const container = document.querySelector(".m-l-20.m-r-20.m-t-20");
-      if (container) {
-        const subjectDivs = Array.from(container.querySelectorAll(".m-b-20"));
-        if (
-          subjectDivs.length > 0 &&
-          subjectDivs.some((div) => !div.hasAttribute("data-subject-processed"))
-        ) {
-          initSubjectSort();
-        }
+    clearTimeout(_subjectSortDebounce);
+    _subjectSortDebounce = setTimeout(() => {
+      if (!isSubjectSortPage()) {
+        stopSubjectSortObserver();
+        return;
       }
-    }
+      if (shouldHide("subject-sort")) sortSubjects();
+    }, 150);
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
   window._subjectSortObserver = observer;
 }
 
-// Global initialization hooked by content.js
-setTimeout(observeSubjectList, 500);
+// First load; later navigations call initSubjectSort from content.js. Read
+// settings first so a user who turned sorting off never sees it flash on.
+setTimeout(async () => {
+  if (typeof loadSettings === "function") await loadSettings();
+  initSubjectSort();
+}, 500);

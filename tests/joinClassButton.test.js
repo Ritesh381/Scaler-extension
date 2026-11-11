@@ -116,3 +116,30 @@ test("extractClassTimes returns null when the time wrapper is absent", () => {
   const card = window.document.querySelector(".card");
   assert.equal(window.extractClassTimes(card), null);
 });
+
+test("observer re-roots when the SPA replaces the dashboard, and stops off the dashboard", () => {
+  const { window } = loadFeature("content/features/joinClassButton.js", {
+    url: "https://www.scaler.com/academy/mentee-dashboard/todos",
+    html: `<!DOCTYPE html><html><body><div id="app"><div class="mentee-dashboard__content"></div></div></body></html>`,
+    globals: { currentSettings: {} },
+  });
+  window.initJoinSessionButtons();
+  const first = window._joinSessionObserverRoot;
+  assert.ok(first, "watching the dashboard");
+
+  // Same root: re-init keeps the observer.
+  const observer = window._joinSessionObserver;
+  window.initJoinSessionButtons();
+  assert.equal(window._joinSessionObserver, observer);
+
+  // The SPA swaps in a new dashboard container: the old one is detached.
+  const app = window.document.getElementById("app");
+  app.innerHTML = '<div class="mentee-dashboard__content"></div>';
+  window.initJoinSessionButtons();
+  assert.notEqual(window._joinSessionObserverRoot, first, "re-rooted");
+  assert.ok(window._joinSessionObserverRoot.isConnected);
+
+  window.history.pushState({}, "", "/topics");
+  window.initJoinSessionButtons();
+  assert.equal(window._joinSessionObserver, null, "stopped off the dashboard");
+});

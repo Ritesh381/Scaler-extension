@@ -44,10 +44,13 @@ re-evaluated (and so does the time window, which changes as the class ends).
 
 `observeDashboardForClassCards()` installs one debounced (200 ms) `MutationObserver`, scoped to
 `.mentee-dashboard__content` → `.mentee-dashboard` → `document.body`, stored on
-`window._joinSessionObserver` and guarded so it is created once.
+`window._joinSessionObserver`, with its root in `window._joinSessionObserverRoot`. A re-init keeps
+it while that root is still on the page; if the SPA replaced the dashboard container, it re-roots
+onto the new one instead of pinning the old, detached subtree.
 
-`initJoinSessionButtons()` runs only when the URL contains `mentee-dashboard` and the setting is
-not `false`; it is called on load (+1.5 s) and after every URL change.
+`initJoinSessionButtons()` is called on load (+1.5 s) and after every URL change. When the URL
+doesn't contain `mentee-dashboard`, or the setting is `false`, it calls
+`stopJoinSessionObserver()` and returns.
 
 ## Teardown
 

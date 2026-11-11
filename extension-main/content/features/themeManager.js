@@ -801,7 +801,41 @@ function ownOpaqueBg(el) {
  * light elements. Skips anything already inside a flagged region.
  */
 function neutralizeDarkRegions(scope) {
+  neutralizeDarkRegionsIn([scope && scope.querySelectorAll ? scope : null]);
+}
+
+/**
+ * neutralizeDarkRegions over several scopes with ONE read phase across all of
+ * them, then one write phase. Per-scope calls would interleave scope N's class
+ * writes with scope N+1's layout reads (layout thrash on every flush).
+ * A null scope means the whole body.
+ */
+function neutralizeDarkRegionsIn(scopes) {
   if (typeof document === "undefined" || !document.documentElement) return;
+  const darkCandidates = [];
+  // A null scope is the whole body, which covers every other scope.
+  const list = scopes.some((sc) => !sc) ? [null] : outermostNodes(scopes);
+  list.forEach((scope) => collectDarkCandidates(scope, darkCandidates));
+  flagDarkCandidates(darkCandidates);
+}
+
+/**
+ * Drop nodes that sit inside another node of the list: scanning the ancestor
+ * already covers them. Keeps the scan disjoint, so flagDarkCandidates still
+ * sees ancestors before descendants. O(nodes × depth).
+ */
+function outermostNodes(nodes) {
+  const set = new Set(nodes);
+  return nodes.filter((node) => {
+    for (let p = node.parentNode; p; p = p.parentNode) {
+      if (set.has(p)) return false;
+    }
+    return true;
+  });
+}
+
+/** Read-only phase of neutralizeDarkRegions: push dark candidates under `scope`. */
+function collectDarkCandidates(scope, darkCandidates) {
   // Root mode scans anywhere; video-scoped mode only ever passes a themed
   // subtree (the rest of the page is unfiltered, so there is nothing to undo).
   const rootClasses = document.documentElement.classList;
@@ -830,7 +864,6 @@ function neutralizeDarkRegions(scope) {
   //      (so only the OUTERMOST dark region in a subtree is counter-inverted).
   // Phase 2 only touches classes/attrs + reads DOM structure (no layout), so it
   // never interleaves a style write with a layout read.
-  const darkCandidates = [];
   nodes.forEach((el) => {
     if (el.hasAttribute(SCALER_DARK_ATTR)) return;
     // Never flag the extension's own spotlight overlay or anything inside it —
@@ -854,6 +887,10 @@ function neutralizeDarkRegions(scope) {
     }
     if (hasDarkBackground(el)) darkCandidates.push(el);
   });
+}
+
+/** Write phase of neutralizeDarkRegions. */
+function flagDarkCandidates(darkCandidates) {
   // Document order → ancestors precede descendants, so the closest() check
   // below sees an already-flagged ancestor and skips nested duplicates.
   darkCandidates.forEach((el) => {
@@ -953,9 +990,16 @@ function mirrorThemeToStorage(theme) {
  * Remember whether the current path is natively dark, so the preload can skip
  * pre-inverting it next time (and stop skipping if it turns light again).
  */
+// Last (path, verdict) written, so the per-frame observer flush doesn't read
+// and parse localStorage when nothing changed.
+let _lastDarknessRecord = null;
+
 function recordPageDarkness(isDark) {
   try {
     if (typeof localStorage === "undefined") return;
+    const record = `${location.pathname}|${isDark}`;
+    if (record === _lastDarknessRecord) return;
+    _lastDarknessRecord = record;
     let arr = [];
     try {
       arr = JSON.parse(localStorage.getItem(SCALER_LS_DARKPATHS) || "[]") || [];
@@ -1311,7 +1355,9 @@ function flushPendingNodes() {
     return;
   }
   const { mode, videos } = reconcileThemeClasses();
-  const added = Array.from(_pendingNodes).filter((n) => n && n.isConnected);
+  // A subtree added along with its own ancestor is scanned once, via the
+  // ancestor.
+  const added = outermostNodes(Array.from(_pendingNodes).filter((n) => n && n.isConnected));
   _pendingNodes.clear();
 
   // A re-parented player wrapper keeps the same <video> but changes its path.
@@ -1322,7 +1368,7 @@ function flushPendingNodes() {
   if (mode !== _renderedMode || pathChanged) {
     renderThemeMode(mode, videos);
   } else if (mode === "root") {
-    added.forEach((node) => neutralizeDarkRegions(node));
+    if (added.length) neutralizeDarkRegionsIn(added);
   } else if (mode === "scoped") {
     added.forEach((node) => extendScopedTheme(node));
   }
@@ -1386,6 +1432,7 @@ function applyTheme(themeId) {
     if (existing) existing.textContent = "";
     stopThemeObserver();
     evaluateAndRender();
+    _themeAppliedOnce = true;
     return;
   }
 
@@ -1394,6 +1441,20 @@ function applyTheme(themeId) {
   getThemeStyleNode().textContent = buildThemeCss(theme, resolveFontUrl());
   evaluateAndRender();
   startThemeObserver();
+  _themeAppliedOnce = true;
+}
+
+// Set once applyTheme has rendered a theme (see applyThemeIfChanged).
+let _themeAppliedOnce = false;
+
+/**
+ * applyTheme, unless that theme is already the one applied. Every settings
+ * write (any toggle, not just the theme) reaches the theme code; a full
+ * re-theme rewrites the stylesheet and rescans the whole page.
+ */
+function applyThemeIfChanged(themeId) {
+  if (_themeAppliedOnce && resolveTheme(themeId).id === _currentThemeId) return;
+  applyTheme(themeId);
 }
 
 /**
@@ -1435,7 +1496,7 @@ function watchThemeChanges() {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "sync" || !changes.cleanerSettings) return;
       const next = changes.cleanerSettings.newValue || {};
-      applyTheme(next.theme || "dark");
+      applyThemeIfChanged(next.theme || "dark");
     });
   } catch (_) {
     /* no-op */
@@ -1446,6 +1507,7 @@ function watchThemeChanges() {
 if (typeof window !== "undefined") {
   window.SCALER_THEMES = SCALER_THEMES;
   window.applyTheme = applyTheme;
+  window.applyThemeIfChanged = applyThemeIfChanged;
   window.initThemeManager = initThemeManager;
   window.watchThemeChanges = watchThemeChanges;
   window.neutralizeDarkRegions = neutralizeDarkRegions;

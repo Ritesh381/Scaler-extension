@@ -44,7 +44,8 @@ Identical mechanics to [lecture-info.md](lecture-info.md): match cards
 never gets duplicate pills.
 
 Observer: debounced 300 ms, scoped to `.mentee-dashboard__content` → `.mentee-dashboard` →
-`document.body`, stored on `window._instructorInfoObserver`.
+`document.body`, stored on `window._instructorInfoObserver` (root in
+`window._instructorInfoObserverRoot`). A re-init re-roots it if the SPA replaced that container.
 
 ## Session half
 
@@ -75,7 +76,12 @@ This is the handler the [Notes tab](lecture-summary.md) has to out-race: it re-s
 on any non-instructor tab click, so lectureSummary defers its own hide with `setTimeout(…, 0)`.
 
 Observer: `window._instructorTabObserver`, debounced 300 ms, scoped to `.me-cr-body` →
-`document.body`, re-ensuring the tab and re-rendering the panel.
+`document.body`, re-ensuring the tab and the panel. It ignores mutations inside our own panel and
+tab. The panel is re-rendered only when its key (`classId|sbat_id|session date`, kept in
+`data-scaler-instructor-key`) changes, and the tab heading is written only when its text differs.
+Before this, every render mutated the observed subtree and re-triggered the observer, so the panel
+was rebuilt every 300 ms for as long as the page was open. `_ensureInstructorPanel()` returns
+`null` instead of building a panel when there is no lecture container to mount it next to.
 
 ## Entry point
 

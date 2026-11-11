@@ -12,23 +12,26 @@ function setupModalObserver() {
   // Debounce timer to batch rapid modal-related mutations.
   let _modalDebounceTimer = null;
 
-  const observer = new MutationObserver((mutations) => {
-    let shouldCheck = false;
+  // Is this added element a modal, or does it contain one? Leaf elements
+  // (most mutations: text spans, icons) skip the subtree query.
+  const isModalNode = (node) =>
+    node.nodeType === Node.ELEMENT_NODE &&
+    (node.classList.contains("sr-modal") ||
+      node.classList.contains("sr-backdrop") ||
+      (node.firstElementChild !== null && node.querySelector(".sr-modal") !== null));
 
-    mutations.forEach((mutation) => {
-      // Check for added nodes that might be modals
-      mutation.addedNodes.forEach((node) => {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          if (
-            node.classList?.contains("sr-modal") ||
-            node.classList?.contains("sr-backdrop") ||
-            node.querySelector?.(".sr-modal")
-          ) {
-            shouldCheck = true;
-          }
+  const observer = new MutationObserver((mutations) => {
+    // Stop at the first modal found instead of querying every added node.
+    let shouldCheck = false;
+    for (let i = 0; i < mutations.length && !shouldCheck; i++) {
+      const added = mutations[i].addedNodes;
+      for (let j = 0; j < added.length; j++) {
+        if (isModalNode(added[j])) {
+          shouldCheck = true;
+          break;
         }
-      });
-    });
+      }
+    }
 
     if (shouldCheck) {
       // Debounce to let the modal fully render before acting

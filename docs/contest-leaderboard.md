@@ -45,14 +45,21 @@ in a `finally`. Without it a burst of mutations would fire several identical API
 `observeForLeaderboard()` installs one `MutationObserver` scoped to `.classroom-contest` →
 `.cr-stats-container` → `document.body`, debounced **300 ms**, which re-checks the setting on each
 callback and only calls `enableContestLeaderboard()` when no fetch is in flight. Stored on
-`window._leaderboardObserver`, guarded against double-creation.
+`window._leaderboardObserver`, with its root in `window._leaderboardObserverRoot`. If the SPA has
+replaced that root, the next init re-roots the observer instead of leaving it on the old,
+detached DOM.
 
-`initContestLeaderboard()` runs on load (+2 s) and 2 s after any URL change on a contest page.
+The alias lookup goes through `getContestAlias()`, which caches per contest id. A found alias is
+fetched once. A failed lookup is retried at most 3 times, at least 10 s apart. Without the cache, a
+contest page with a ticking timer re-fetched on every debounced mutation.
+
+`initContestLeaderboard()` runs on load (+2 s) and 2 s after every URL change. Off a contest page,
+or with the feature off, it calls `stopContestLeaderboard()`.
 
 ## Teardown
 
-`content.js` key `contest-leaderboard`, off branch: disconnects and nulls
-`window._leaderboardObserver`. The already-injected link is **not** reverted — as the code notes,
+`content.js` key `contest-leaderboard`, off branch: calls `stopContestLeaderboard()`, which clears
+the debounce timer and disconnects `window._leaderboardObserver`. The already-injected link is **not** reverted — as the code notes,
 undoing it would mean restoring Scaler's original div, and the page reload does that anyway.
 
 ## Limits

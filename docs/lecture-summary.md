@@ -28,7 +28,8 @@ per URL in `_lectureCache`.
 2. No slug → *"Couldn't identify this lecture"*.
 3. `checkSummaryCache` → cached summary found? Render it. Done.
 4. `checkTranscriptCache` → transcript cached? Render the **Generate Notes** screen (and stash the
-   transcript text in `_transcriptTextCache`).
+   transcript text in `_transcriptTextCache`, which keeps at most the 2 most recently stored
+   transcripts: one is ~150 KB for a 3 h lecture and the cache lives as long as the tab).
 5. Neither → render **Generate Transcript** first, whose button navigates to the same URL with
    `joinSession=1`, where the recording/transcript tool lives.
 

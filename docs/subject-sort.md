@@ -40,20 +40,22 @@ Core (fail-safe: never demote something unknown).
 
 ## Observer
 
-`observeSubjectList()` is started by a `setTimeout(..., 500)` at module load (this file
-self-registers rather than being driven from `content.js`'s init list). It observes
-`document.body` (`childList` + `subtree`) and re-runs `initSubjectSort()` only when the curriculum
-container holds at least one block lacking `data-subject-processed`. The observer is stored on
-`window._subjectSortObserver` and guarded against double-creation.
+`initSubjectSort()` runs once at module load (+500 ms, after `loadSettings()`), and `content.js`
+calls it 1.5 s after every URL change. On a `/core-curriculum` page with the feature on, it starts
+`observeSubjectList()` and sorts. Anywhere else, or with the feature off, it stops the observer.
 
-`content.js` also calls `initSubjectSort()` 1.5 s after any URL change that includes
-`/core-curriculum`.
+The observer watches `document.body` (`childList` + `subtree`), is debounced 150 ms, and only ever
+calls `sortSubjects()`, which does nothing unless some block lacks `data-subject-processed`. It
+never calls `restoreSubjectSort()`. An earlier version did, and restoring the numbers mutated the
+list, which re-ran the observer in a loop that froze the tab. The observer is stored on
+`window._subjectSortObserver`, guarded against double-creation, and stopped by
+`stopSubjectSortObserver()`.
 
 ## Teardown
 
-`restoreSubjectSort()` clears `data-subject-processed` and restores each number element's
-`data-original-text`. `content.js` (key `subject-sort`, off) calls it and disconnects
-`window._subjectSortObserver`.
+`restoreSubjectSort()` clears `data-subject-processed`, restores each number element's
+`data-original-text` and then removes that attribute, so a second restore changes nothing.
+`content.js` (key `subject-sort`, off) calls it and disconnects `window._subjectSortObserver`.
 
 **Known limitation, stated in the code:** the original DOM *order* is not restored — only the
 numbering. Toggling off leaves the subjects grouped until the page is reloaded.

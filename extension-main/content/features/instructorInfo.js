@@ -261,8 +261,18 @@ async function _injectDashboardInstructorInfo() {
 }
 
 function _observeDashboardForInstructorInfo() {
-	if (window._instructorInfoObserver) return;
 	if (!_isTodosDashboard()) return;
+	const liveRoot =
+		document.querySelector(".mentee-dashboard__content") ||
+		document.querySelector(".mentee-dashboard") ||
+		document.body;
+	if (window._instructorInfoObserver) {
+		// Re-root if the SPA replaced the subtree we were watching.
+		const watched = window._instructorInfoObserverRoot;
+		if (watched === liveRoot && watched.isConnected) return;
+		window._instructorInfoObserver.disconnect();
+		window._instructorInfoObserver = null;
+	}
 
 	let debounceTimer = null;
 	const observer = new MutationObserver(() => {
@@ -281,6 +291,7 @@ function _observeDashboardForInstructorInfo() {
 
 	observer.observe(root, { childList: true, subtree: true });
 	window._instructorInfoObserver = observer;
+	window._instructorInfoObserverRoot = root;
 }
 
 function _buildInfoRow(label, value, isEmail = false) {
@@ -390,12 +401,10 @@ function _ensureInstructorPanel() {
 	panel.appendChild(content);
 
 	const lectureContainer = document.querySelector(".me-cr-lecture-container") || document.querySelector(".flex-fill");
-	if (lectureContainer && lectureContainer.parentElement) {
-		lectureContainer.parentElement.insertBefore(
-			panel,
-			lectureContainer.nextSibling,
-		);
-	}
+	// No place to mount yet: build nothing, or every observer tick would leave
+	// another detached panel behind.
+	if (!lectureContainer || !lectureContainer.parentElement) return null;
+	lectureContainer.parentElement.insertBefore(panel, lectureContainer.nextSibling);
 
 	return panel;
 }
@@ -436,6 +445,7 @@ function _activateInstructorTab() {
 	tab.classList.add("me-cr-tabs__tab-item--active");
 
 	const panel = _ensureInstructorPanel();
+	if (!panel) return;
 	panel.style.display = "block";
 	_setLectureContainerVisible(false);
 }
@@ -534,10 +544,16 @@ async function _injectSessionInstructorInfo() {
 
 	const panel = _ensureInstructorPanel();
 	if (!panel) return;
-	_renderInstructorPanelContent(panel, lecture, sessionDate);
-	panel.dataset.scalerInstructorLecture = lecture?.sbat_id
-		? String(lecture.sbat_id)
-		: "";
+	// Re-render only when what the panel shows changes. Rebuilding it on every
+	// observer tick mutated the observed subtree and kept the loop going.
+	const renderKey = `${classId || ""}|${lecture?.sbat_id || ""}|${sessionDate.toDateString()}`;
+	if (panel.dataset.scalerInstructorKey !== renderKey) {
+		_renderInstructorPanelContent(panel, lecture, sessionDate);
+		panel.dataset.scalerInstructorKey = renderKey;
+		panel.dataset.scalerInstructorLecture = lecture?.sbat_id
+			? String(lecture.sbat_id)
+			: "";
+	}
 
 	const tab = document.getElementById(INSTRUCTOR_TAB_ID);
 	if (tab) {
@@ -547,8 +563,9 @@ async function _injectSessionInstructorInfo() {
 				const firstName = lecture.instructors_name.trim().split(/\s+/)[0];
 				// Escape HTML just in case
 				const safeName = firstName.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-				heading.innerHTML = `Instructor Info <span style="color: #94a1b5;">(${safeName})</span>`;
-			} else {
+				const html = `Instructor Info <span style="color: #94a1b5;">(${safeName})</span>`;
+				if (heading.innerHTML !== html) heading.innerHTML = html;
+			} else if (heading.textContent !== "Instructor Info") {
 				heading.textContent = "Instructor Info";
 			}
 		}
@@ -560,7 +577,11 @@ function _observeSessionInstructorInfo() {
 	if (!_isSessionPage()) return;
 
 	let debounceTimer = null;
-	const observer = new MutationObserver(() => {
+	const observer = new MutationObserver((mutations) => {
+		// Our own panel/tab edits are not page changes worth reacting to.
+		const ours = (node) =>
+			node && node.closest && node.closest(`#${INSTRUCTOR_PANEL_ID}, #${INSTRUCTOR_TAB_ID}`);
+		if (mutations.every((m) => ours(m.target.nodeType === 1 ? m.target : m.target.parentElement))) return;
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
 			if (_isSessionPage()) {

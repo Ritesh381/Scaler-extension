@@ -231,8 +231,12 @@ keep inverting a natively-dark page.
 - `scheduleFlush()` uses **`requestAnimationFrame`**, not a timer, so newly added dark regions are
   flagged *before* the browser paints them — a dark drawer never flashes white-then-black.
 - `flushPendingNodes()` reconciles classes and scans **only the added subtrees**, keeping cost
-  proportional to what changed rather than to page size. It calls `contextGone()` each flush and
-  tears the observer down if the extension was reloaded.
+  proportional to what changed rather than to page size. Subtrees added along with their own
+  ancestor are dropped (`outermostNodes()`), and in root mode all remaining subtrees go through
+  `neutralizeDarkRegionsIn()` in one read phase and then one write phase, so one subtree's class
+  writes never force layout for the next one's reads. `recordPageDarkness()` skips its
+  `localStorage` read and write when the path's verdict hasn't changed since the last flush. It
+  calls `contextGone()` each flush and tears the observer down if the extension was reloaded.
 - `stopThemeObserver()` disconnects, cancels the pending rAF and clears the node set; it is also
   wired to `pagehide` with `{ once: true }`.
 
@@ -242,7 +246,10 @@ keep inverting a natively-dark page.
   (storage is the single source of truth, so it doesn't depend on `settings.js` load order) and
   defaults to `dark` when nothing was ever chosen.
 - `watchThemeChanges()` listens to `chrome.storage.onChanged` for `cleanerSettings`, so a theme
-  change from the popup applies instantly even if the tab message is missed.
+  change from the popup applies instantly even if the tab message is missed. It goes through
+  `applyThemeIfChanged()`, as does `content.js`'s `settingsUpdated` handler: every settings write
+  (any toggle) reaches these paths, and a full re-theme rewrites the stylesheet and rescans the
+  page, so it is skipped when the theme is the one already applied.
 - The module self-initialises at the bottom of the file (`if (document.documentElement)`) rather
   than waiting for `content.js`'s `load` handler, which may fire later.
 - `content.js` also calls `applyTheme(value)` on the `theme` toggle message.

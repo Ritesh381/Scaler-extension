@@ -39,7 +39,8 @@ Reload rules after editing:
 extension-main/            the actual extension — everything shipped lives here
   manifest.json            MV3 manifest; version, permissions, content_scripts, web_accessible_resources
   popup.html/.css/.js      settings UI; DEFAULT_SETTINGS declared in popup.js
-  background/              service worker: background.js + companionBypass, leetcodeLink,
+  background/              service worker: background.js + fetchTimeout (bgFetch: every
+                           request gets a timeout), companionBypass, leetcodeLink,
                            videoTracker, calendarSync, messagesProxy, summaryProxy,
                            classroomProxy
   content/
@@ -70,8 +71,9 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow and
   `manifest.json`, in the right position.
 - Cross-script sharing happens through globals (`currentSettings`, `DEFAULT_SETTINGS`,
   `window._someObserver`) and IIFEs that attach `window.initX`.
-- Scaler is a SPA. Navigation does not reload the page — `core/urlObserver.js` patches
-  `history.pushState`/`replaceState` and re-runs feature init on URL change. Every feature must be
+- Scaler is a SPA. Navigation does not reload the page — `core/urlObserver.js` detects route
+  changes (Navigation API, with a body observer fallback) and runs the hooks registered with
+  `onUrlChange(fn)` once per real URL change. Every feature must be
   idempotent on re-init.
 - Settings live in `chrome.storage.sync` under the key `cleanerSettings`. `DEFAULT_SETTINGS` is
   duplicated in `popup.js` and `content/cleaner/selectors.js` — **update both** or the toggle silently

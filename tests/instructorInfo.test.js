@@ -102,3 +102,44 @@ test("does nothing on unrelated pages", () => {
   window.initInstructorInfo();
   assert.equal(window.document.getElementById("classroom-instructor-info"), null);
 });
+
+test("session page: the panel is not rebuilt on every page mutation (no self-triggering loop)", async () => {
+  const { window } = loadFeature("content/features/instructorInfo.js", {
+    url: "https://www.scaler.com/academy/mentee-dashboard/class/123/session",
+    fetch: eventsFetch,
+    html: `<!DOCTYPE html><html><body>
+      <div class="me-cr-body">
+        <div class="navigation-tabs"></div>
+        <div class="me-cr-lecture-container">lecture</div>
+      </div>
+    </body></html>`,
+  });
+
+  window.initInstructorInfo();
+  await tick(400);
+  const panel = window.document.getElementById("scaler-instructor-panel");
+  const card = panel.querySelector(".event-card");
+  assert.ok(card, "panel rendered");
+
+  // Count our own writes into the observed root over the next ticks.
+  let ownWrites = 0;
+  new window.MutationObserver((records) => {
+    ownWrites += records.filter((r) => panel.contains(r.target) || r.target === panel).length;
+  }).observe(window.document.body, { childList: true, subtree: true });
+
+  window.document.querySelector(".me-cr-lecture-container").append(window.document.createElement("span"));
+  await tick(1200);
+  assert.equal(panel.querySelector(".event-card"), card, "same card element: not re-rendered");
+  assert.equal(ownWrites, 0, "the panel settles instead of rewriting itself every 300 ms");
+});
+
+test("session page: no mount point means no detached panels are built", async () => {
+  const { window } = loadFeature("content/features/instructorInfo.js", {
+    url: "https://www.scaler.com/academy/mentee-dashboard/class/123/session",
+    fetch: eventsFetch,
+    html: `<!DOCTYPE html><html><body><div class="me-cr-body"><div class="navigation-tabs"></div></div></body></html>`,
+  });
+  window.initInstructorInfo();
+  await tick(400);
+  assert.equal(window.document.getElementById("scaler-instructor-panel"), null);
+});
