@@ -70,6 +70,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         provider: message.provider || "",
         model: message.model || "",
         source: message.source || "",
+        // Names the version that was served. Without it the backend assumes an
+        // old build and bumps the best-ranked version's count a second time.
+        versionId: message.versionId || "",
       }),
     }).catch(() => {
       /* fail silently */
