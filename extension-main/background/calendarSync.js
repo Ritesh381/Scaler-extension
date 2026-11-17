@@ -14,7 +14,28 @@
 
 const CALENDAR_ALARM_NAME = "autoSyncCalendar";
 const CALENDAR_ALARM_PERIOD = 1440; // minutes — 24 hours
-const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+// ─── Scope ───────────────────────────────────────────────────
+// calendar.app.created: "Make secondary Google calendars, and see, create,
+// change, and delete events on them." The extension can only touch the one
+// calendar it creates — never the user's own calendars or events.
+//
+// It used to ask for calendar.events ("view and edit events on ALL your
+// calendars"). Google classes that scope as SENSITIVE, and an unverified app
+// asking for a sensitive scope gets "This app is blocked — This app tried to
+// access sensitive info in your Google Account" (issue #29). Keep this the
+// ONLY scope, and keep manifest.oauth2.scopes identical to it: adding any
+// sensitive Calendar scope back brings the block back.
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.app.created";
+const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
+// The secondary calendar the classes go into.
+const CALENDAR_NAME = "Scaler classes";
+// chrome.storage.sync: ids of calendars this extension created, newest first.
+// A list, not one id, because the same Chrome profile can sync with different
+// Google accounts on different devices; each account finds its own calendar
+// in the list (another account's id is simply not found).
+const CALENDAR_IDS_KEY = "scaler_calendar_ids";
+const CALENDAR_IDS_MAX = 5;
 
 // ─── OAuth Clients ───────────────────────────────────────────
 // TWO different Google OAuth clients are needed. They are NOT
@@ -133,7 +154,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // ── Manual "Sync Now" button in the popup ──────────────────
   if (request.action === "SYNC_CALENDAR") {
     performSync(/* isInteractive */ true)
-      .then(() => sendResponse({ success: true }))
+      .then((result) => sendResponse({ success: true, ...(result || {}) }))
       .catch((err) => {
         console.error("[Scaler++ Calendar] Manual sync failed:", err);
         sendResponse({ success: false, error: err.message });
@@ -248,28 +269,40 @@ async function _getWebToken() {
     `?client_id=${encodeURIComponent(WEB_CLIENT_ID)}` +
     `&response_type=token` +
     `&redirect_uri=${encodeURIComponent(redirectUrl)}` +
-    `&scope=${encodeURIComponent(CALENDAR_SCOPE)}`;
+    `&scope=${encodeURIComponent(CALENDAR_SCOPE)}` +
+    // A school or work account can be barred from third-party apps by its
+    // organisation; letting the user pick an account is the way out.
+    `&prompt=select_account`;
 
   return new Promise((resolve, reject) => {
     chrome.identity.launchWebAuthFlow(
       { url: authUrl, interactive: true },
       (responseUrl) => {
         if (chrome.runtime.lastError || !responseUrl) {
-          reject(
-            new Error(
-              chrome.runtime.lastError?.message ??
-                "Auth cancelled. On Brave/Edge, ensure the redirect URI is " +
-                  "registered in Google Cloud Console.",
-            ),
-          );
+          reject(new Error(_signInRefusedMessage(chrome.runtime.lastError?.message)));
           return;
         }
         const match = responseUrl.match(/access_token=([^&]+)/);
+        const error = responseUrl.match(/[#?&]error=([^&]+)/);
         if (match) resolve(match[1]);
-        else reject(new Error("No access token in redirect URL"));
+        else reject(new Error(_signInRefusedMessage(error && decodeURIComponent(error[1]))));
       },
     );
   });
+}
+
+/**
+ * What to tell the user when Google sign-in ends without a token. Google's
+ * "This app is blocked" page and an organisation's block both end with the
+ * window closed or `error=access_denied`, which on their own say nothing.
+ */
+function _signInRefusedMessage(reason) {
+  const detail = reason ? ` (${reason})` : "";
+  return (
+    `Google sign-in didn't complete${detail}. If Google said the app is blocked, ` +
+    "you may be signed in with a school or work account whose organisation doesn't " +
+    "allow it — run Sync Now again and pick a personal Google account."
+  );
 }
 
 /**
@@ -337,13 +370,126 @@ async function _calendarFetch(url, init, auth, isInteractive) {
   return bgFetch(url, withAuth(auth.token));
 }
 
+// ─── Calendar & events ───────────────────────────────────────
+
+async function _readCalendarIds() {
+  const stored = (await chrome.storage.sync.get(CALENDAR_IDS_KEY))[CALENDAR_IDS_KEY];
+  return Array.isArray(stored) ? stored.filter((id) => typeof id === "string") : [];
+}
+
+async function _rememberCalendarId(id, known) {
+  const ids = [id, ...known.filter((k) => k !== id)].slice(0, CALENDAR_IDS_MAX);
+  await chrome.storage.sync.set({ [CALENDAR_IDS_KEY]: ids });
+}
+
+function _authRejected(status) {
+  return status === 401 || status === 403;
+}
+
+/**
+ * The id of this extension's "Scaler classes" calendar in the signed-in
+ * account, creating the calendar if there is none (first sync, or the user
+ * deleted it).
+ *
+ * calendar.app.created can't list the user's calendars, so the ids of the
+ * calendars it created are remembered and checked one by one: a calendar
+ * that was deleted, or that belongs to another Google account, is not found.
+ */
+async function _ensureCalendar(auth, isInteractive) {
+  const known = await _readCalendarIds();
+  for (const id of known) {
+    const res = await _calendarFetch(
+      `${CALENDAR_API}/calendars/${encodeURIComponent(id)}`,
+      {},
+      auth,
+      isInteractive,
+    );
+    if (res.ok) {
+      if (known[0] !== id) await _rememberCalendarId(id, known);
+      return id;
+    }
+    if (res.status === 401) {
+      throw new Error("Google rejected the authorization. Re-run Sync Now and grant access.");
+    }
+    // 404 / 403: deleted, or another account's calendar — try the next one.
+  }
+
+  const res = await _calendarFetch(
+    `${CALENDAR_API}/calendars`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: CALENDAR_NAME,
+        description: "Your Scaler classes, kept up to date by the Scaler++ extension.",
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    },
+    auth,
+    isInteractive,
+  );
+  if (!res.ok) {
+    if (_authRejected(res.status)) {
+      throw new Error("Google rejected the authorization. Re-run Sync Now and grant access.");
+    }
+    throw new Error(`Couldn't create the "${CALENDAR_NAME}" calendar (HTTP ${res.status}).`);
+  }
+  const { id } = await res.json();
+  await _rememberCalendarId(id, known);
+  console.log(`[Scaler++ Calendar] Created the "${CALENDAR_NAME}" calendar.`);
+  return id;
+}
+
+/**
+ * A stable Google event id for a lesson, so a re-sync finds the event it made
+ * before instead of guessing by title. Event ids use base32hex (0-9, a-v), 5
+ * to 1024 characters; Number#toString(32) produces exactly that alphabet.
+ */
+function _eventIdFor(lesson) {
+  const raw = String(lesson.sbat_id ?? "");
+  if (/^[0-9]+$/.test(raw)) return `scalerpp${raw}`;
+  // No class id: hash title + start (FNV-1a) instead.
+  const key = `${lesson.title}|${lesson.date}`;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `scalerpp${hash.toString(32)}`;
+}
+
+/** The Google Calendar event for a Scaler lesson. */
+function _eventFor(lesson) {
+  return {
+    id: _eventIdFor(lesson),
+    summary: lesson.title,
+    description:
+      `Instructor: ${lesson.instructors_name}\n` + `Course: ${lesson.super_batch_name}`,
+    start: { dateTime: lesson.date },
+    end: { dateTime: lesson.end_time },
+  };
+}
+
+/** Does the stored event already say what `wanted` says? Times compare as instants. */
+function _eventMatches(current, wanted) {
+  const same = (a, b) => Date.parse(a?.dateTime) === Date.parse(b?.dateTime);
+  return (
+    current.summary === wanted.summary &&
+    (current.description || "") === wanted.description &&
+    same(current.start, wanted.start) &&
+    same(current.end, wanted.end)
+  );
+}
+
 // ─── Core Sync ───────────────────────────────────────────────
 
 /**
- * Fetch the next 7 days of Scaler lessons and push each one to the
- * user's primary Google Calendar.
+ * Fetch the next 7 days of Scaler lessons and keep them in the extension's
+ * own "Scaler classes" Google calendar: new lessons are added, rescheduled or
+ * renamed ones updated in place, and an event the user deleted stays deleted.
  *
  * @param {boolean} isInteractive See _getOAuthToken.
+ * @returns {Promise<{added: number, updated: number, skipped: number}|undefined>}
  */
 async function performSync(isInteractive = false) {
   // ── 1. Build date range: today → +7 days ──────────────────
@@ -399,92 +545,107 @@ async function performSync(isInteractive = false) {
 
   if (lessons.length === 0) {
     console.log("[Scaler++ Calendar] Nothing to sync — exiting early.");
-    return;
+    return { added: 0, updated: 0, skipped: 0 };
   }
 
-  // ── 3. Obtain Google OAuth token ──────────────────────────
+  // ── 3. Obtain Google OAuth token and our calendar ─────────
   const auth = await _getOAuthToken(isInteractive);
+  const calendarId = await _ensureCalendar(auth, isInteractive);
+  const eventsUrl = `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events`;
 
-  // ── 4. Push each lesson to Google Calendar ────────────────
+  // ── 4. Upsert each lesson by its stable event id ──────────
   let addedCount = 0;
+  let updatedCount = 0;
   let skippedCount = 0;
   let authFailures = 0;
 
   for (const lesson of lessons) {
-    // Build a minimal Calendar event.  Including the course name
-    // in the description helps when a user has multiple batches.
-    const gCalEvent = {
-      summary: lesson.title,
-      description:
-        `Instructor: ${lesson.instructors_name}\n` +
-        `Course: ${lesson.super_batch_name}`,
-      start: { dateTime: lesson.date },
-      end: { dateTime: lesson.end_time },
-    };
-
+    const event = _eventFor(lesson);
     console.log(`[Scaler++ Calendar]   → "${lesson.title}"`);
 
     try {
-      // Check if this class already exists in Google Calendar
-      const searchRes = await _calendarFetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events` +
-          `?q=${encodeURIComponent(lesson.title)}` +
-          `&timeMin=${new Date(lesson.date).toISOString()}` +
-          `&timeMax=${new Date(lesson.end_time).toISOString()}`,
+      const existingRes = await _calendarFetch(
+        `${eventsUrl}/${event.id}`,
         {},
         auth,
         isInteractive,
       );
-
-      if (searchRes.status === 401 || searchRes.status === 403) {
+      if (_authRejected(existingRes.status)) {
         // Auth is dead for the whole run — no point hammering the rest
         authFailures++;
         console.error(
-          `[Scaler++ Calendar]   ✗ Auth rejected (HTTP ${searchRes.status}) ` +
+          `[Scaler++ Calendar]   ✗ Auth rejected (HTTP ${existingRes.status}) ` +
             `while checking "${lesson.title}".`,
         );
         break;
       }
 
-      const searchData = await searchRes.json();
-      if (searchData.items?.length > 0) {
-        console.log(`[Scaler++ Calendar]   ⏭ Already exists: "${lesson.title}"`);
-        skippedCount++;
-        continue;
+      let writeRes;
+      if (existingRes.ok) {
+        const current = await existingRes.json();
+        if (current.status === "cancelled") {
+          // The user deleted it from the calendar: respect that.
+          console.log(`[Scaler++ Calendar]   ⏭ Deleted by you, left alone: "${lesson.title}"`);
+          skippedCount++;
+          continue;
+        }
+        if (_eventMatches(current, event)) {
+          console.log(`[Scaler++ Calendar]   ⏭ Up to date: "${lesson.title}"`);
+          skippedCount++;
+          continue;
+        }
+        const { id: _id, ...changes } = event;
+        writeRes = await _calendarFetch(
+          `${eventsUrl}/${event.id}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(changes),
+          },
+          auth,
+          isInteractive,
+        );
+        if (writeRes.ok) {
+          console.log(`[Scaler++ Calendar]   ✓ Updated: "${lesson.title}"`);
+          updatedCount++;
+          continue;
+        }
+      } else if (existingRes.status === 404) {
+        writeRes = await _calendarFetch(
+          eventsUrl,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(event),
+          },
+          auth,
+          isInteractive,
+        );
+        if (writeRes.ok) {
+          console.log(`[Scaler++ Calendar]   ✓ Added: "${lesson.title}"`);
+          addedCount++;
+          continue;
+        }
+      } else {
+        writeRes = existingRes;
       }
 
-      const gCalRes = await _calendarFetch(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(gCalEvent),
-        },
-        auth,
-        isInteractive,
-      );
-
-      if (gCalRes.ok) {
-        console.log(`[Scaler++ Calendar]   ✓ Added: "${lesson.title}"`);
-        addedCount++;
-      } else if (gCalRes.status === 401 || gCalRes.status === 403) {
+      if (_authRejected(writeRes.status)) {
         authFailures++;
         console.error(
-          `[Scaler++ Calendar]   ✗ Auth rejected (HTTP ${gCalRes.status}) ` +
-            `while adding "${lesson.title}".`,
+          `[Scaler++ Calendar]   ✗ Auth rejected (HTTP ${writeRes.status}) ` +
+            `while saving "${lesson.title}".`,
         );
         break;
-      } else {
-        // Log the exact Google error reason and continue — a single
-        // bad event (e.g. duplicate, malformed date) should not
-        // abort the rest of the sync run.
-        const errorBody = await gCalRes.text();
-        console.error(
-          `[Scaler++ Calendar]   ✗ Google rejected "${lesson.title}" ` +
-            `(HTTP ${gCalRes.status}): ${errorBody}`,
-        );
-        skippedCount++;
       }
+      // Log the exact Google error reason and continue — a single bad
+      // event (e.g. malformed date) should not abort the rest of the run.
+      const errorBody = await writeRes.text();
+      console.error(
+        `[Scaler++ Calendar]   ✗ Google rejected "${lesson.title}" ` +
+          `(HTTP ${writeRes.status}): ${errorBody}`,
+      );
+      skippedCount++;
     } catch (networkError) {
       // Network failure for a single event — log and move on
       console.error(
@@ -497,14 +658,15 @@ async function performSync(isInteractive = false) {
 
   console.log(
     `[Scaler++ Calendar] Sync complete — ` +
-      `${addedCount} added, ${skippedCount} skipped.`,
+      `${addedCount} added, ${updatedCount} updated, ${skippedCount} skipped.`,
   );
 
   // Never report success when the run died on authorization — the popup
   // used to print "✓ Classes added to Calendar" after adding nothing.
-  if (authFailures > 0 && addedCount === 0) {
+  if (authFailures > 0 && addedCount + updatedCount === 0) {
     throw new Error(
       "Google rejected the authorization. Re-run Sync Now and grant access.",
     );
   }
+  return { added: addedCount, updated: updatedCount, skipped: skippedCount };
 }

@@ -34,8 +34,11 @@ Rewind the live lecture.
 
 ## 📅 Google Calendar Sync
 
-Automatically adds your upcoming Scaler classes directly to your Google
-Calendar — no manual entry needed.
+Automatically adds your upcoming Scaler classes to a **Scaler classes** calendar in your Google
+Calendar — no manual entry needed. A rescheduled class moves with it, and a class you delete stays
+deleted. Scaler++ can only see and change that one calendar, never your own calendars or events.
+If Google says the app is blocked, you are probably signed in with a school or work account whose
+organisation doesn't allow it: click **Sync Now** again and pick a personal Google account.
 
 ## 🚀 Direct Join Session
 

@@ -80,7 +80,8 @@ once.
 ## Other controls
 
 - **Sync Now** (`#syncCalendarBtn`) — disables itself, shows `Syncing…`, sends `SYNC_CALENDAR`,
-  renders success/failure into `#syncStatus`, clears after 5 s. See
+  renders success (`✓ N classes synced to “Scaler classes”`, or `… is up to date`) or failure into
+  `#syncStatus`, clears after 5 s. See
   [calendar-sync.md](calendar-sync.md).
 - **Practice-mode days** (`#practice-mode-days`) — writes `practice-mode-days` and messages the
   tab.
