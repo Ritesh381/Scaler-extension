@@ -70,6 +70,10 @@ Rows are found by visible text, not Scaler's generated class names:
 - every row begins with a stamp, `11 AUG | 03:45 PM` (possibly split across elements —
   `findLectureRows` climbs from each date text until an element's text starts with the full
   stamp);
+- for a class within a day of now Scaler shows a word in place of the date: `YESTERDAY |
+  09:30 AM`, `TODAY | …`, `TOMORROW | …`. These are stamps too. `describeClassRow` writes the
+  word out as its date (`16 NOV | 09:30 AM`), so the picker and the file names read the same
+  for every row. A parser that only knew `11 AUG` dropped these rows from the picker;
 - a **row** is the widest element holding exactly one stamp (capped at 6 levels and never
   `<main>`, so a page with a single stamp can't widen into the whole page);
 - a row is a **lecture** if it has a `Lecture` progress cell — contests ("DevOps End Term",

@@ -6,8 +6,8 @@
 // the bulk download page (bulkDownloadPage.html), which does the work in its
 // own tab.
 //
-// Rows are read from visible text ("11 AUG | 03:45 PM", a "Lecture" progress
-// cell), not Scaler's generated class names.
+// Rows are read from visible text ("11 AUG | 03:45 PM" or "YESTERDAY |
+// 09:30 AM", a "Lecture" progress cell), not Scaler's generated class names.
 // ============================================================
 
 const BULK_BAR_ID = "scaler-bulk-download-bar";
@@ -15,19 +15,26 @@ const BULK_MODAL_ID = "scaler-bulk-download-modal";
 // How long to wait for the class list to render before giving up.
 const BULK_OBSERVER_CAP_MS = 30000;
 const BULK_OBSERVER_DEBOUNCE_MS = 400;
-// The stamp every class row starts with: "11 AUG | 03:45 PM".
-const BULK_STAMP_RE = /^(\d{1,2})\s+([A-Za-z]{3})\s*\|\s*(\d{1,2}):(\d{2})\s*([AP]M)/i;
+// The day a class row starts with: "11 AUG", or the word Scaler shows in its
+// place for a class within a day of now.
+const BULK_DAY = String.raw`(?:(\d{1,2})\s+([A-Za-z]{3})|(today|yesterday|tomorrow))`;
+const BULK_STAMP = String.raw`${BULK_DAY}\s*\|\s*(\d{1,2}):(\d{2})\s*([AP]M)`;
+const BULK_DAY_START_RE = new RegExp(`^${BULK_DAY}\\b`, "i");
+// The stamp every class row starts with: "11 AUG | 03:45 PM". Groups: day,
+// month, relative word, hour, minute, AM/PM.
+const BULK_STAMP_RE = new RegExp(`^${BULK_STAMP}`, "i");
 // The same stamp anywhere in a row's text (a row may lead with icon text).
-const BULK_STAMP_ANYWHERE_RE = /(\d{1,2})\s+([A-Za-z]{3})\s*\|\s*(\d{1,2}):(\d{2})\s*([AP]M)/i;
+const BULK_STAMP_ANYWHERE_RE = new RegExp(BULK_STAMP, "i");
 // How far a row may widen from its stamp; only matters when a page holds a
 // single stamp, where "widest element with one stamp" has no natural stop.
 const BULK_ROW_MAX_WIDEN = 6;
-const BULK_STAMP_GLOBAL_RE = /\d{1,2}\s+[A-Za-z]{3}\s*\|\s*\d{1,2}:\d{2}\s*[AP]M/gi;
+const BULK_STAMP_GLOBAL_RE = new RegExp(BULK_STAMP, "gi");
 // Row texts that aren't the lecture's title: pieces of the stamp and the
 // progress cells ("Lecture", "0.0%", "Assignment", "5 / 5", "-").
 const BULK_NOT_TITLE_RE =
-  /^(?:lecture|assignment|additional problems?|view details|score\b.*|[\d.]+\s*%|\d+\s*\/\s*\d+|-|\||\d{1,2}\s+[A-Za-z]{3}|\d{1,2}:\d{2}\s*[AP]M|\d{1,2}\s+[A-Za-z]{3}\s*\|\s*\d{1,2}:\d{2}\s*[AP]M)$/i;
+  /^(?:lecture|assignment|additional problems?|view details|score\b.*|[\d.]+\s*%|\d+\s*\/\s*\d+|-|\||(?:\d{1,2}\s+[A-Za-z]{3}|today|yesterday|tomorrow)|\d{1,2}:\d{2}\s*[AP]M|(?:\d{1,2}\s+[A-Za-z]{3}|today|yesterday|tomorrow)\s*\|\s*\d{1,2}:\d{2}\s*[AP]M)$/i;
 const BULK_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const BULK_RELATIVE_DAYS = { yesterday: -1, today: 0, tomorrow: 1 };
 
 let _bulkCapTimer = null;
 let _bulkDebounceTimer = null;
@@ -73,10 +80,23 @@ function holdsSubjectLabel(el) {
 }
 
 /**
- * Describe one class row: its stamp, title, class id (from a /class/{id}
- * link, when the row has one) and whether it's a lecture.
+ * The calendar day a relative word ("Yesterday") stands for, at local midnight.
  */
-function describeClassRow(el) {
+function bulkRelativeDay(word, now) {
+  return new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + BULK_RELATIVE_DAYS[word.toLowerCase()],
+  );
+}
+
+/**
+ * Describe one class row: its stamp, title, class id (from a /class/{id}
+ * link, when the row has one) and whether it's a lecture. A relative day is
+ * written out as its date ("YESTERDAY" on 17 Nov becomes "16 NOV"), so every
+ * stamp reads the same in the picker and in file names.
+ */
+function describeClassRow(el, now = new Date()) {
   const texts = textNodesMatching(el, (t) => t.length > 0)
     .filter(
       (n) =>
@@ -90,9 +110,16 @@ function describeClassRow(el) {
   // its spaces ("11 AUG|03:45 PM").
   const m = bulkText(el).match(BULK_STAMP_ANYWHERE_RE);
   if (!m) return { el, stamp: "", title, classId: null, isLecture: false };
+  let day = m[1];
+  let month = m[2];
+  if (m[3]) {
+    const date = bulkRelativeDay(m[3], now);
+    day = String(date.getDate());
+    month = BULK_MONTHS[date.getMonth()];
+  }
   return {
     el,
-    stamp: `${m[1]} ${m[2].toUpperCase()} | ${m[3]}:${m[4]} ${m[5].toUpperCase()}`,
+    stamp: `${day} ${month.toUpperCase()} | ${m[4]}:${m[5]} ${m[6].toUpperCase()}`,
     title,
     classId: link ? extractClassId(link.getAttribute("href")) : null,
     // Lectures (and labs) carry a "Lecture" progress cell; contests don't.
@@ -106,13 +133,14 @@ function describeClassRow(el) {
  * A row is the widest element holding exactly one "11 AUG | 03:45 PM" stamp:
  * start from each date text, climb until the element's text begins with a
  * full stamp, then widen while the parent still holds only that one stamp.
+ * @param {Date} [now] what "Today" / "Yesterday" / "Tomorrow" are relative to
  * @returns {{index, el, stamp, title, classId, isLecture}[]}
  */
-function findLectureRows(root = document) {
+function findLectureRows(root = document, now = new Date()) {
   const scope = root.body || root;
   const rows = [];
   const seen = new Set();
-  for (const node of textNodesMatching(scope, (t) => /^\d{1,2}\s+[A-Za-z]{3}\b/.test(t))) {
+  for (const node of textNodesMatching(scope, (t) => BULK_DAY_START_RE.test(t))) {
     let el = node.parentElement;
     for (let depth = 0; el && depth < 4 && !BULK_STAMP_RE.test(bulkText(el)); depth++) {
       el = el.parentElement;
@@ -135,7 +163,7 @@ function findLectureRows(root = document) {
     }
     if (seen.has(el)) continue;
     seen.add(el);
-    rows.push(describeClassRow(el));
+    rows.push(describeClassRow(el, now));
   }
   return rows.filter((r) => r.isLecture).map((r, i) => ({ ...r, index: i + 1 }));
 }
@@ -147,11 +175,16 @@ function findLectureRows(root = document) {
 function bulkStampToDate(stamp, now = new Date()) {
   const m = String(stamp).match(BULK_STAMP_RE);
   if (!m) return null;
+  let hour = parseInt(m[4], 10) % 12;
+  if (m[6].toUpperCase() === "PM") hour += 12;
+  if (m[3]) {
+    const day = bulkRelativeDay(m[3], now);
+    day.setHours(hour, parseInt(m[5], 10));
+    return day;
+  }
   const month = BULK_MONTHS.indexOf(m[2].toLowerCase());
   if (month < 0) return null;
-  let hour = parseInt(m[3], 10) % 12;
-  if (m[5].toUpperCase() === "PM") hour += 12;
-  const at = (year) => new Date(year, month, parseInt(m[1], 10), hour, parseInt(m[4], 10));
+  const at = (year) => new Date(year, month, parseInt(m[1], 10), hour, parseInt(m[5], 10));
   const date = at(now.getFullYear());
   return date - now > 60 * 86400000 ? at(now.getFullYear() - 1) : date;
 }
