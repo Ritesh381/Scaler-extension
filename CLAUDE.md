@@ -75,6 +75,12 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow and
   changes (Navigation API, with a body observer fallback) and runs the hooks registered with
   `onUrlChange(fn)` once per real URL change. Every feature must be
   idempotent on re-init.
+- Never mark a Scaler element with a **class** that CSS or logic depends on. Scaler's React
+  components assign an element's whole `className` on every state change (the lecture chat
+  sidebar does it on each close/open), which wipes classes added from outside. Use a `data-*`
+  attribute instead; React leaves attributes it didn't render alone, and `[data-x]` has the same
+  specificity as `.x`. The theme's markers (`data-scaler-themed`, `data-scaler-dark-region`) are
+  the reference — see [docs/theme-manager.md](docs/theme-manager.md).
 - Settings live in `chrome.storage.sync` under the key `cleanerSettings`. `DEFAULT_SETTINGS` is
   duplicated in `popup.js` and `content/cleaner/selectors.js` — **update both** or the toggle silently
   no-ops.
