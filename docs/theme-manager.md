@@ -65,7 +65,7 @@ Two independent mechanisms flag "don't invert this":
    `childList` observer never re-scans it. That combination used to turn dark editors white.
 2. **Runtime luminance scan — `neutralizeDarkRegions(scope)`.**
    Scans a curated candidate set (`div, section, header, …, pre, code, .cm-editor, .CodeMirror,
-   .ace_editor`) and flags an element with `.scaler-no-invert` + `data-scaler-dark-region` when:
+   .ace_editor`) and flags an element with the `data-scaler-dark-region` attribute when:
    - its own `background-color` is opaque (`a >= 0.5`) and `luminance < 0.22`
      (`0.2126R + 0.7152G + 0.0722B` over 255),
    - it is at least 48 × 28 px (skip icons and slivers),
@@ -74,8 +74,8 @@ Two independent mechanisms flag "don't invert this":
 
    The scan runs in **two phases** — read-only measurement first, then class mutation — to avoid
    layout thrash. Because `querySelectorAll` returns document order, only the **outermost** dark
-   region in a subtree gets flagged (`el.parentElement.closest('.scaler-no-invert')` skips
-   nested ones).
+   region in a subtree gets flagged (`el.parentElement.closest('[data-scaler-dark-region]')`
+   skips nested ones).
 
 `.scaler-keep-invert` is a double-negative escape hatch for media that *should* be inverted.
 
@@ -93,6 +93,27 @@ sidebar) opts **out** of the media un-invert with `filter: none`. It is dark ink
 canvas, so un-inverting it — correct for a photo — puts it back to dark-on-dark. The opt-out is
 scoped to that one asset on purpose: a general "small images should invert" rule would also flip
 genuinely dark artwork, which the media rule exists to protect.
+
+### Markers are attributes, never classes
+
+Both runtime markers, `data-scaler-dark-region` and `data-scaler-themed`, are **attributes**,
+and the CSS selects on them (`[data-scaler-dark-region]`, `[data-scaler-themed]`). They used
+to be classes (`.scaler-no-invert`, `.scaler-themed`) with the attribute alongside for
+teardown.
+
+Scaler's React components set an element's **whole class string** on every state change. The
+lecture chat sidebar goes `m-sidebar` → `m-sidebar m-sidebar--open` each time it is closed
+and opened, and that assignment wipes any class added from outside. The result was the worst
+of both: the class, and with it the filter, was gone, while the attribute stayed, so every
+scan still treated the element as handled and never flagged it again. A reopened chat stayed
+white until the theme was re-applied (which clears and rebuilds everything).
+
+React does not touch attributes it didn't render, so an attribute marker survives. A class
+selector and an attribute selector have the same specificity, so the cascade is unchanged.
+
+**Rule for new code here:** never make CSS depend on a class added to a Scaler element. Use
+an attribute. The classes on `<html>` (`scaler-theme-active`, `scaler-theme-scoped`,
+`scaler-theme-<id>`) are the exception: they are reconciled on every flush.
 
 ## Per-page decision
 
@@ -163,12 +184,13 @@ In scoped mode `scopeAroundVideos(videos)` collects every ancestor of every exem
     (see [Sized after it is first seen](#sized-after-it-is-first-seen));
   - a light chip smaller than 48 × 28 px on a dark surface is left native (it is part of that
     chrome's design), and watched likewise;
-  - anything else is flagged `.scaler-themed` + `data-scaler-themed` and gets the theme
+  - anything else is flagged `data-scaler-themed` and gets the theme
     filter. `neutralizeDarkRegions()` then runs inside it, so dark buttons in a themed panel
     keep their counter exactly as in root mode.
 
 The CSS for both modes comes from one helper, `buildFilteredScopeCss(theme, scope)`, emitted
-once with `html.scaler-theme-active` and once with `html.scaler-theme-scoped .scaler-themed`,
+once with `html.scaler-theme-active` and once with `html.scaler-theme-scoped
+[data-scaler-themed]`,
 so the media / region / component-fix rules can't drift apart. Root-mode output is unchanged
 and emitted first. In scoped mode `<html>` is painted with the themed version of `theme.bg`;
 the Midnight accent (a pre-image) is gated to root mode only.
@@ -199,7 +221,7 @@ read once, when the element is first seen. Three things change a size without ad
 so the childList observer never looked again and the first verdict stuck until the theme was
 re-applied:
 
-- **A panel that mounts collapsed and slides open** (the lecture chat). At width 0 it was
+- **A panel that mounts collapsed and slides open.** At width 0 it was
   passed over and only its sized children were themed, leaving the panel's own white
   background unthemed around them.
 - **A shell that mounts empty and is filled later.** Each child was themed on its own; the

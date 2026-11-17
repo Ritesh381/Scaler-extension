@@ -56,24 +56,32 @@ const SCALER_THEME_MEDIA_COUNTER = SCALER_SELF_INVERSE;
 const SCALER_REGION_BRIGHTNESS = 1.1;
 const SCALER_THEME_REGION_COUNTER = `${SCALER_SELF_INVERSE} brightness(${SCALER_REGION_BRIGHTNESS})`;
 
-// Class/attr used to flag natively-dark regions (code editors, video players,
+// Attribute used to flag natively-dark regions (code editors, video players,
 // the lecture whiteboard, dark output panels) that must NOT be inverted again —
 // otherwise a root invert turns them white. Flagged statically (selectors) and
 // dynamically (runtime luminance scan).
-const SCALER_NO_INVERT_CLASS = "scaler-no-invert";
+//
+// The marker is an ATTRIBUTE, not a class, and so is the themed-subtree marker
+// below. Scaler's React components set an element's whole class string on
+// every state change (the lecture chat sidebar goes "m-sidebar" → "m-sidebar
+// m-sidebar--open"), which wipes any class added from outside. A wiped class
+// took the CSS with it while the element still counted as handled, so a
+// reopened panel stayed unthemed until the theme was re-applied. React leaves
+// attributes it didn't render alone.
 const SCALER_DARK_ATTR = "data-scaler-dark-region";
+const SCALER_DARK_SELECTOR = `[${SCALER_DARK_ATTR}]`;
 
 // A background is "dark" below this sRGB luminance (0..1).
 const SCALER_DARK_LUMINANCE = 0.22;
 
 // Video-scoped mode: root class used INSTEAD of SCALER_THEME_ROOT_CLASS while a
 // lecture-sized video is on screen. The root is left unfiltered and each themed
-// subtree carries SCALER_THEMED_CLASS (+ attr, so teardown can find them).
+// subtree carries SCALER_THEMED_ATTR.
 // Light ancestors of the video can't be filtered, so their background is
 // recoloured inline and tagged with SCALER_VIDEO_PATH_ATTR for restoring.
 const SCALER_THEME_SCOPED_CLASS = "scaler-theme-scoped";
-const SCALER_THEMED_CLASS = "scaler-themed";
 const SCALER_THEMED_ATTR = "data-scaler-themed";
+const SCALER_THEMED_SELECTOR = `[${SCALER_THEMED_ATTR}]`;
 const SCALER_VIDEO_PATH_ATTR = "data-scaler-video-path";
 
 // Smallest <video> that switches the page to video-scoped mode. Keeps preview
@@ -372,7 +380,7 @@ function buildFilteredScopeCss(theme, scope) {
   // statically by class). Built from one list so the counter rule and the
   // "media inside a region" rule below can never drift out of sync.
   const keepDarkSelectors = [
-    `.${SCALER_NO_INVERT_CLASS}`,
+    SCALER_DARK_SELECTOR,
     ...SCALER_DARK_EDITOR_SELECTOR.split(",").map((s) => s.trim()),
   ];
   const keepDarkRule = keepDarkSelectors
@@ -435,7 +443,7 @@ function buildFilteredScopeCss(theme, scope) {
     /* Natively-dark regions: un-invert AND darken so they blend with the
        inverted near-black page instead of standing out as lighter panels.
        Two sources, both kept dark by the SAME counter:
-         • .${SCALER_NO_INVERT_CLASS} — flagged at runtime by the luminance scan
+         • ${SCALER_DARK_SELECTOR} — flagged at runtime by the luminance scan
            ONLY when a region's background is actually dark. Handles dark output
            panels, terminals, drawers, non-Monaco editors, etc.
          • Monaco's dark theme variants (.monaco-editor.vs-dark / .hc-black /
@@ -521,7 +529,7 @@ function buildFilteredScopeCss(theme, scope) {
  */
 function buildVideoScopedCss(theme) {
   const s = `html.${SCALER_THEME_SCOPED_CLASS}`;
-  const scope = `${s} .${SCALER_THEMED_CLASS}`;
+  const scope = `${s} ${SCALER_THEMED_SELECTOR}`;
   return `
     /* The root is NOT filtered in this mode, so paint it with the colour the
        filter would have turned theme.bg into. */
@@ -900,10 +908,9 @@ function flagDarkCandidates(darkCandidates) {
   // Document order → ancestors precede descendants, so the closest() check
   // below sees an already-flagged ancestor and skips nested duplicates.
   darkCandidates.forEach((el) => {
-    if (el.parentElement && el.parentElement.closest(`.${SCALER_NO_INVERT_CLASS}`)) {
+    if (el.parentElement && el.parentElement.closest(SCALER_DARK_SELECTOR)) {
       return;
     }
-    el.classList.add(SCALER_NO_INVERT_CLASS);
     el.setAttribute(SCALER_DARK_ATTR, "");
   });
 }
@@ -914,8 +921,7 @@ function flagDarkCandidates(darkCandidates) {
  */
 function clearDarkRegions(scope) {
   if (typeof document === "undefined") return;
-  (scope || document).querySelectorAll(`[${SCALER_DARK_ATTR}]`).forEach((el) => {
-    el.classList.remove(SCALER_NO_INVERT_CLASS);
+  (scope || document).querySelectorAll(SCALER_DARK_SELECTOR).forEach((el) => {
     el.removeAttribute(SCALER_DARK_ATTR);
   });
 }
@@ -1281,14 +1287,12 @@ function offPathVerdict(el, onDark, hasLayout) {
  * dropped and the dark regions rescanned against `el`.
  */
 function markThemed(el) {
-  el.querySelectorAll(`[${SCALER_THEMED_ATTR}]`).forEach((inner) => {
-    inner.classList.remove(SCALER_THEMED_CLASS);
+  el.querySelectorAll(SCALER_THEMED_SELECTOR).forEach((inner) => {
     inner.removeAttribute(SCALER_THEMED_ATTR);
   });
   clearDarkRegions(el);
   clearGrowthWatch(el);
   unwatchGrowth(el);
-  el.classList.add(SCALER_THEMED_CLASS);
   el.setAttribute(SCALER_THEMED_ATTR, "");
   neutralizeDarkRegions(el);
 }
@@ -1369,7 +1373,7 @@ function sitsOnDark(el) {
  * background unthemed around it.
  */
 function extendScopedTheme(node, regrown) {
-  if (node.closest(`.${SCALER_THEMED_CLASS}`)) {
+  if (node.closest(SCALER_THEMED_SELECTOR)) {
     if (regrown) clearDarkRegions(node);
     neutralizeDarkRegions(node);
     return;
@@ -1403,8 +1407,7 @@ function extendScopedTheme(node, regrown) {
  */
 function clearScopedTheme() {
   if (typeof document === "undefined") return;
-  document.querySelectorAll(`[${SCALER_THEMED_ATTR}]`).forEach((el) => {
-    el.classList.remove(SCALER_THEMED_CLASS);
+  document.querySelectorAll(SCALER_THEMED_SELECTOR).forEach((el) => {
     el.removeAttribute(SCALER_THEMED_ATTR);
   });
   _pathBgOverrides.forEach((saved, el) => {

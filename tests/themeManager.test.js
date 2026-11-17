@@ -117,11 +117,11 @@ test("natively-dark widgets are flagged so the invert doesn't whiten them", () =
   const editor = window.document.querySelector(".monaco-editor");
   const lightPre = window.document.querySelector("pre");
   assert.ok(
-    editor.classList.contains("scaler-no-invert"),
+    editor.hasAttribute("data-scaler-dark-region"),
     "dark editor flagged for counter-invert",
   );
   assert.ok(
-    !lightPre.classList.contains("scaler-no-invert"),
+    !lightPre.hasAttribute("data-scaler-dark-region"),
     "light element left alone",
   );
 });
@@ -362,7 +362,7 @@ test("scanning an added subtree flags its own dark root (incremental scan)", () 
   window.neutralizeDarkRegions(el); // scope === the added node itself
 
   assert.ok(
-    el.classList.contains("scaler-no-invert"),
+    el.hasAttribute("data-scaler-dark-region"),
     "added dark root flagged without a full-document scan",
   );
 });
@@ -376,7 +376,7 @@ test("turning the theme off clears dark-region flags", () => {
   window.neutralizeDarkRegions(window.document.body);
   window.applyTheme("off");
   const editor = window.document.querySelector(".monaco-editor");
-  assert.ok(!editor.classList.contains("scaler-no-invert"), "flag removed on off");
+  assert.ok(!editor.hasAttribute("data-scaler-dark-region"), "flag removed on off");
 });
 
 test("initThemeManager reads the saved theme from chrome.storage.sync", async () => {
@@ -472,9 +472,9 @@ test("scoped CSS is emitted AFTER the unchanged root-mode rules", () => {
 
   const rootMedia = css.indexOf("html.scaler-theme-active img,");
   const scopedFilter = css.search(
-    /html\.scaler-theme-scoped \.scaler-themed \{\s*filter:\s*invert\(1\) hue-rotate\(180deg\)/,
+    /html\.scaler-theme-scoped \[data-scaler-themed\] \{\s*filter:\s*invert\(1\) hue-rotate\(180deg\)/,
   );
-  const scopedMedia = css.indexOf("html.scaler-theme-scoped .scaler-themed img,");
+  const scopedMedia = css.indexOf("html.scaler-theme-scoped [data-scaler-themed] img,");
   assert.ok(rootMedia !== -1, "root media counter still present");
   assert.ok(scopedFilter !== -1, "themed subtrees carry the theme filter");
   assert.ok(scopedMedia !== -1, "media inside a themed subtree is counter-inverted");
@@ -508,7 +508,7 @@ test("scoped mode themes light panels, keeps dark chrome and media native", () =
   assert.ok(!themed(window, "controls"), "transparent controls over the black player left native");
   assert.ok(!themed(window, "thumb"), "media never carries the filter");
   assert.ok(
-    window.document.getElementById("notice").classList.contains("scaler-no-invert"),
+    window.document.getElementById("notice").hasAttribute("data-scaler-dark-region"),
     "dark button inside a themed panel keeps its counter",
   );
 });
@@ -555,13 +555,78 @@ test("leaving scoped mode for root mode clears scoped flags first", () => {
   assert.equal(window.document.querySelectorAll("[data-scaler-themed]").length, 0, "themed flags cleared");
   assert.equal(window.document.body.style.backgroundColor, "rgb(255, 255, 255)", "body background restored");
   assert.ok(
-    window.document.getElementById("overlay").classList.contains("scaler-no-invert"),
+    window.document.getElementById("overlay").hasAttribute("data-scaler-dark-region"),
     "root-mode dark-region scan ran from scratch",
   );
   assert.ok(
-    !window.document.getElementById("notice").classList.contains("scaler-no-invert"),
+    !window.document.getElementById("notice").hasAttribute("data-scaler-dark-region"),
     "no scoped-era flag left nested inside a root-mode region (would double-flip)",
   );
+});
+
+// ── Markers must survive the page rewriting an element's class ───────────────
+// Scaler's React components set the whole class string on every state change
+// (the chat sidebar goes "m-sidebar" → "m-sidebar m-sidebar--open"), which
+// wipes any class the theme added. A marker the CSS depends on can't be a class.
+
+// The stylesheet rules that put a filter on `el`, as the browser would match them.
+function filterRulesFor(window, el) {
+  const out = [];
+  const visit = (rules) => {
+    for (const rule of rules) {
+      if (rule.cssRules && !rule.selectorText) {
+        if (!/print/.test(rule.conditionText || rule.media?.mediaText || "")) visit(rule.cssRules);
+        continue;
+      }
+      if (!rule.selectorText || !/filter\s*:/.test(rule.cssText)) continue;
+      const hit = rule.selectorText.split(/,\s*/).some((sel) => {
+        try {
+          return el.matches(sel);
+        } catch (_) {
+          return false;
+        }
+      });
+      if (hit) out.push(rule.cssText);
+    }
+  };
+  for (const sheet of window.document.styleSheets) visit(sheet.cssRules);
+  return out;
+}
+
+test("a themed panel keeps its filter when the page rewrites its class", async () => {
+  const { window } = loadFeature(THEME_FILE, { html: PLAYER_HTML });
+  sizeVideo(window, 640, 360);
+  window.applyTheme("dracula");
+  const chat = window.document.getElementById("chat");
+  assert.ok(filterRulesFor(window, chat).some((css) => /invert\(0\.9\)/.test(css)), "themed to start with");
+
+  chat.className = "m-sidebar"; // closed
+  chat.className = "m-sidebar m-sidebar--open"; // reopened: React set the whole string both times
+  assert.ok(
+    filterRulesFor(window, chat).some((css) => /invert\(0\.9\)/.test(css)),
+    "the theme filter still applies to the panel",
+  );
+
+  // Content mounted into the reopened panel belongs to it: no filter of its own.
+  const content = window.document.createElement("div");
+  content.id = "archive";
+  content.style.backgroundColor = "rgb(255, 255, 255)";
+  chat.appendChild(content);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(filterRulesFor(window, content).length, 0, "content is themed through the panel, once");
+});
+
+test("a dark region keeps its counter when the page rewrites its class", () => {
+  const { window } = loadFeature(THEME_FILE, {
+    html: `<!DOCTYPE html><html><body style="background-color: rgb(255, 255, 255)">
+      <div id="term" class="terminal" style="background-color: rgb(20, 20, 20)">$ ls</div></body></html>`,
+  });
+  window.applyTheme("dark");
+  const term = window.document.getElementById("term");
+  assert.equal(filterRulesFor(window, term).length, 1, "countered to start with");
+
+  term.className = "terminal terminal--focused";
+  assert.equal(filterRulesFor(window, term).length, 1, "still countered: it would turn white otherwise");
 });
 
 // ── Elements that are sized after they are first seen ────────────────────────
@@ -648,7 +713,7 @@ test("a panel that mounts collapsed is themed as a whole once it opens", async (
 
   assert.ok(themed(window, "panel"), "panel themed once it has a size");
   assert.ok(!themed(window, "head") && !themed(window, "msgs"), "pieces no longer carry a second filter");
-  assert.ok($("notice").classList.contains("scaler-no-invert"), "dark button inside keeps its counter");
+  assert.ok($("notice").hasAttribute("data-scaler-dark-region"), "dark button inside keeps its counter");
   assert.ok(!ro.watched().includes($("panel")), "panel no longer watched");
 });
 
@@ -689,7 +754,7 @@ test("root mode: a dark drawer that mounts collapsed is protected once it opens"
   $("slot").innerHTML = `<div id="drawer" data-box="0x300" style="background-color: rgb(30, 30, 30)">
     <div id="dhead" data-box="320x60" style="background-color: rgb(17, 17, 17)">Menu</div></div>`;
   await flushed();
-  const flagged = (id) => $(id).classList.contains("scaler-no-invert");
+  const flagged = (id) => $(id).hasAttribute("data-scaler-dark-region");
   assert.ok(!flagged("drawer"), "width 0: not a dark region yet");
   assert.ok(flagged("dhead"), "its sized dark header is");
 
@@ -792,7 +857,7 @@ test("dark regions in several added subtrees are flagged in one pass, nested one
 
   window.neutralizeDarkRegions(outer);
   window.neutralizeDarkRegions(other);
-  const flagged = Array.from(doc.querySelectorAll(".scaler-no-invert"));
+  const flagged = Array.from(doc.querySelectorAll("[data-scaler-dark-region]"));
   assert.ok(flagged.includes(outer) && flagged.includes(other), "both regions flagged");
   assert.ok(!flagged.includes(inner), "a dark child of a flagged region is not flagged again");
 });
