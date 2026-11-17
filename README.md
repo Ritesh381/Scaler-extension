@@ -26,7 +26,7 @@ Credits - [PHATWalrus](https://github.com/PHATWalrus)
 
 ## 📦 Bulk Lecture Download
 
-On a subject's class list, **⬇ Bulk download lectures** saves transcripts, video and/or audio for any range of lectures into one folder, named in lecture order (`01 - 11 Aug - Introduction to DevOps.mp4`). Lab sessions are skipped by default. Choose how many lectures download at once; cached transcripts are free and instant, and lectures nobody has transcribed yet can be transcribed with your own API key (same provider/model/key fields as the transcript page), one at a time.
+On a subject's class list, **⬇ Bulk download lectures** saves transcripts, video and/or audio for any range of lectures into one folder, named in lecture order (`01 - 11 Aug - Introduction to DevOps.mp4`). Lab sessions are skipped by default, and classes that are still running or haven't been held yet can't be picked (they have no recording). Choose how many lectures download at once; cached transcripts are free and instant, and lectures nobody has transcribed yet can be transcribed with your own API key (same provider/model/key fields as the transcript page), one at a time.
 
 ## 🔴 Live Stream Recorder & ⏪ DVR
 
