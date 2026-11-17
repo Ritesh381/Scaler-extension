@@ -250,6 +250,54 @@ test("real Scaler class-list rows: mixed-case stamp, CSS-free pipe span, title l
   assert.ok(window.document.getElementById("scaler-bulk-download-bar"), "bar injected above the real rows");
 });
 
+test("rows dated Yesterday / Today / Tomorrow are read, with their real date", () => {
+  const raw = require("fs")
+    .readFileSync(require("path").join(__dirname, "fixtures/scaler-class-row.html"), "utf8")
+    .replace(/<!--[\s\S]*?-->/, "")
+    .trim();
+  // Scaler replaces the date of a class within a day of now with a word.
+  const relative = (word, id, title) =>
+    raw.replace("13 Aug", word).replace(/567320/g, id).replace("Linux Fundamentals", title);
+  const { window } = load([
+    raw,
+    relative("Yesterday", "601", "TCP vs UDP vs Custom Protocols #2"),
+    relative("TODAY", "602", "Packet Capture, Analysis &amp; Parsing"),
+    relative("Tomorrow", "603", "IO Models"),
+  ]);
+  const now = new Date(2026, 10, 17, 12, 0); // 17 Nov 2026, noon
+  const rows = window.findLectureRows(window.document, now);
+  assert.deepEqual(plain(rows.map((r) => [r.index, r.stamp, r.title, r.classId])), [
+    [1, "13 AUG | 09:35 AM", "Linux Fundamentals", "567320"],
+    [2, "16 NOV | 09:35 AM", "TCP vs UDP vs Custom Protocols #2", "601"],
+    [3, "17 NOV | 09:35 AM", "Packet Capture, Analysis & Parsing", "602"],
+    [4, "18 NOV | 09:35 AM", "IO Models", "603"],
+  ]);
+});
+
+test("a relative day crosses month and year ends", () => {
+  const { window } = load();
+  const stampOf = (word, now) => {
+    const el = window.document.createElement("div");
+    el.innerHTML = `<div>${word}<span>|</span>09:30 AM</div><a href="/academy/mentee-dashboard/class/7">T</a><div>Lecture</div>`;
+    return window.describeClassRow(el, now).stamp;
+  };
+  assert.equal(stampOf("Yesterday", new Date(2026, 11, 1, 8, 0)), "30 NOV | 09:30 AM");
+  assert.equal(stampOf("Tomorrow", new Date(2026, 11, 31, 8, 0)), "1 JAN | 09:30 AM");
+  const jan1 = window.bulkStampToDate("Yesterday | 09:30 AM", new Date(2027, 0, 1, 8, 0));
+  assert.deepEqual([jan1.getFullYear(), jan1.getMonth(), jan1.getDate(), jan1.getHours()], [2026, 11, 31, 9]);
+});
+
+test("the bar appears on a list whose only rows are relative days", () => {
+  const raw = require("fs")
+    .readFileSync(require("path").join(__dirname, "fixtures/scaler-class-row.html"), "utf8")
+    .replace(/<!--[\s\S]*?-->/, "")
+    .trim();
+  const { window } = load([raw.replace("13 Aug", "Today"), raw.replace("13 Aug", "Tomorrow").replace(/567320/g, "9")]);
+  window.initBulkDownload();
+  assert.ok(window.document.getElementById("scaler-bulk-download-bar"));
+  assert.equal(window.findLectureRows(window.document).length, 2, "each row is its own row, not one merged block");
+});
+
 test("a subject with a single class: the bar goes above the list, not into the page layout", () => {
   const raw = require("fs")
     .readFileSync(require("path").join(__dirname, "fixtures/scaler-class-row.html"), "utf8")
