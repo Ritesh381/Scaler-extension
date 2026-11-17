@@ -12,6 +12,12 @@
 
 const BULK_BAR_ID = "scaler-bulk-download-bar";
 const BULK_MODAL_ID = "scaler-bulk-download-modal";
+// How long a class is taken to run when its end time isn't known.
+const BULK_ASSUMED_CLASS_MS = 4 * 3600000;
+// How far ahead the events feed is asked for classes that haven't happened.
+const BULK_UPCOMING_DAYS = 366;
+const BULK_EVENTS_TIMEOUT_MS = 8000;
+const BULK_PENDING_LABELS = { live: "in progress", upcoming: "not held yet" };
 // How long to wait for the class list to render before giving up.
 const BULK_OBSERVER_CAP_MS = 30000;
 const BULK_OBSERVER_DEBOUNCE_MS = 400;
@@ -157,34 +163,103 @@ function bulkStampToDate(stamp, now = new Date()) {
 }
 
 /**
- * Rows without a /class/ link get their class id from the dashboard's own
- * events feed (the one lectureInfo.js reads) for the rows' date range,
- * matched by title. Mutates `lectures`; ids that can't be matched stay null.
+ * The dashboard's own events feed (the one lectureInfo.js reads) between two
+ * dates: past and future events that belong to a class. null when it can't
+ * be read; never throws, and gives up after BULK_EVENTS_TIMEOUT_MS.
+ * @returns {Promise<{event: object, future: boolean}[]|null>}
+ */
+async function fetchBulkEvents(start, end) {
+  const day = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), BULK_EVENTS_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `${location.origin}/academy/mentee/events/?start_date=${day(start)}&end_date=${day(end)}`,
+      { credentials: "include", signal: abort.signal },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const tagged = (events, future) =>
+      (events || []).filter((e) => e && e.sbat_id).map((event) => ({ event, future }));
+    return [...tagged(json.pastEvents, false), ...tagged(json.futureEvents, true)];
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Rows without a /class/ link get their class id from the events feed for
+ * the rows' date range, matched by title. Mutates `lectures`; ids that can't
+ * be matched stay null (the rows are shown as unavailable).
  */
 async function resolveMissingClassIds(lectures) {
   const missing = lectures.filter((l) => !l.classId);
   if (!missing.length) return;
   const dates = missing.map((l) => bulkStampToDate(l.stamp)).filter(Boolean);
   if (!dates.length) return;
-  const day = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const start = new Date(Math.min(...dates) - 86400000);
-  const end = new Date(Math.max(...dates) + 86400000);
-  try {
-    const res = await fetch(
-      `${location.origin}/academy/mentee/events/?start_date=${day(start)}&end_date=${day(end)}`,
-      { credentials: "include" },
-    );
-    if (!res.ok) return;
-    const json = await res.json();
-    const events = [...(json.pastEvents || []), ...(json.futureEvents || [])].filter((e) => e && e.sbat_id);
-    const norm = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    for (const lecture of missing) {
-      const match = events.filter((e) => norm(e.title) === norm(lecture.title));
-      if (match.length === 1) lecture.classId = String(match[0].sbat_id);
+  const events = await fetchBulkEvents(
+    new Date(Math.min(...dates) - 86400000),
+    new Date(Math.max(...dates) + 86400000),
+  );
+  if (!events) return;
+  const norm = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  for (const lecture of missing) {
+    const match = events.filter(({ event }) => norm(event.title) === norm(lecture.title));
+    if (match.length === 1) lecture.classId = String(match[0].event.sbat_id);
+  }
+}
+
+/**
+ * Whether a feed event is still to come ("upcoming"), running ("live") or
+ * over (""). An event without an end time is taken to run
+ * BULK_ASSUMED_CLASS_MS; one without any usable time counts as upcoming only
+ * if the feed listed it as a future event.
+ */
+function bulkEventState({ event, future }, now) {
+  const start = new Date(event.date || event.start_time || NaN);
+  const end = new Date(event.end_time || NaN);
+  if (!isNaN(start) && start > now) return "upcoming";
+  if (!isNaN(end)) return end > now ? "live" : "";
+  if (!isNaN(start)) return now - start < BULK_ASSUMED_CLASS_MS ? "live" : "";
+  return future ? "upcoming" : "";
+}
+
+/**
+ * Mark the classes that have no recording yet: still to come, or running
+ * now. Sets `pending` ("upcoming" | "live") and `pendingSure` on those
+ * lectures; finished ones are left untouched.
+ *
+ * The events feed decides, because it knows each class's real date and end
+ * time. A row only says "13 AUG | 09:35 AM": no year and no end. When the
+ * feed can't be read the row's own date is used (BULK_ASSUMED_CLASS_MS after
+ * the start counts as running), and `pendingSure` stays false so the picker
+ * lets the user overrule it.
+ */
+async function markUnfinishedClasses(lectures, now = new Date()) {
+  const events = await fetchBulkEvents(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1),
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + BULK_UPCOMING_DAYS),
+  );
+  if (events) {
+    const states = new Map();
+    for (const entry of events) {
+      const state = bulkEventState(entry, now);
+      if (state) states.set(String(entry.event.sbat_id), state);
     }
-  } catch (_) {
-    /* rows stay without an id and are shown as unavailable */
+    for (const lecture of lectures) {
+      const state = lecture.classId && states.get(String(lecture.classId));
+      if (state) Object.assign(lecture, { pending: state, pendingSure: true });
+    }
+    return;
+  }
+  for (const lecture of lectures) {
+    const start = bulkStampToDate(lecture.stamp, now);
+    if (!start) continue;
+    if (start > now) lecture.pending = "upcoming";
+    else if (now - start < BULK_ASSUMED_CLASS_MS) lecture.pending = "live";
   }
 }
 
@@ -234,6 +309,7 @@ function injectBulkBar() {
     try {
       const lectures = findLectureRows();
       await resolveMissingClassIds(lectures);
+      await markUnfinishedClasses(lectures);
       openBulkModal(lectures, findSubjectName());
     } finally {
       button.disabled = false;
@@ -254,6 +330,8 @@ function closeBulkModal() {
 /**
  * The picker: lectures with checkboxes, a From/To range (shift-click works
  * too), what to save, and whether to transcribe lectures nobody has yet.
+ * Classes marked `pending` (markUnfinishedClasses) have no recording: they
+ * are listed but left out of the selection, the range and All.
  */
 function openBulkModal(lectures, subject) {
   closeBulkModal();
@@ -282,6 +360,7 @@ function openBulkModal(lectures, subject) {
         <label class="sbd-labs"><input type="checkbox" class="sbd-include-labs"> Include labs</label>
       </div>
       <ul class="sbd-list"></ul>
+      <div class="sbd-pending-note" hidden></div>
       <div class="sbd-types">
         <label><input type="checkbox" class="sbd-type" value="transcript" checked> Transcripts</label>
         <label><input type="checkbox" class="sbd-type" value="video"> Video</label>
@@ -311,8 +390,10 @@ function openBulkModal(lectures, subject) {
     const label = document.createElement("label");
     const box = document.createElement("input");
     box.type = "checkbox";
-    box.checked = !!lecture.classId && !isLabClass(lecture.title);
-    box.disabled = !lecture.classId;
+    box.checked = !!lecture.classId && !isLabClass(lecture.title) && !lecture.pending;
+    // A date-only verdict (no events feed) may be wrong, so it can be overruled.
+    box.disabled = !lecture.classId || (!!lecture.pending && !!lecture.pendingSure);
+    if (lecture.pending) li.className = "sbd-pending";
     const stamp = document.createElement("span");
     stamp.className = "sbd-stamp";
     stamp.textContent = lecture.stamp;
@@ -326,6 +407,12 @@ function openBulkModal(lectures, subject) {
       tag.textContent = "lab";
       label.append(tag);
     }
+    if (lecture.pending) {
+      const tag = document.createElement("span");
+      tag.className = "sbd-note sbd-pending-tag";
+      tag.textContent = BULK_PENDING_LABELS[lecture.pending];
+      label.append(tag);
+    }
     if (!lecture.classId) {
       const note = document.createElement("span");
       note.className = "sbd-note";
@@ -336,6 +423,8 @@ function openBulkModal(lectures, subject) {
     list.append(li);
     boxes.push(box);
 
+    // The range runs over finished classes only: "To" ends at the latest one.
+    if (lecture.pending) return;
     for (const select of [from, to]) {
       const opt = document.createElement("option");
       opt.value = String(i);
@@ -343,7 +432,16 @@ function openBulkModal(lectures, subject) {
       select.append(opt);
     }
   });
-  to.value = String(Math.max(0, lectures.length - 1));
+  if (to.options.length) to.value = to.options[to.options.length - 1].value;
+  const pendingCount = lectures.filter((l) => l.pending).length;
+  if (pendingCount) {
+    const note = $(".sbd-pending-note");
+    note.hidden = false;
+    note.textContent =
+      pendingCount === 1
+        ? "1 class hasn't finished yet, so it has no recording to download."
+        : `${pendingCount} classes haven't finished yet, so they have no recording to download.`;
+  }
 
   const updateCount = () => {
     const n = boxes.filter((b) => b.checked).length;
@@ -357,11 +455,13 @@ function openBulkModal(lectures, subject) {
     boxes.forEach((box, i) => {
       if (box.disabled || i < lo || i > hi) return;
       if (checked && isLabClass(lectures[i].title) && !includeLabs.checked) return;
+      if (checked && lectures[i].pending) return;
       box.checked = checked;
     });
     updateCount();
   };
   const applyFromTo = () => {
+    if (!from.options.length) return;
     boxes.forEach((box) => {
       if (!box.disabled) box.checked = false;
     });
@@ -373,7 +473,7 @@ function openBulkModal(lectures, subject) {
     () => {
       const [lo, hi] = [parseInt(from.value, 10), parseInt(to.value, 10)].sort((x, y) => x - y);
       boxes.forEach((box, i) => {
-        if (!box.disabled && i >= lo && i <= hi && isLabClass(lectures[i].title)) {
+        if (!box.disabled && !lectures[i].pending && i >= lo && i <= hi && isLabClass(lectures[i].title)) {
           box.checked = includeLabs.checked;
         }
       });

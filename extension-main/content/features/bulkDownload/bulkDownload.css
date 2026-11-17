@@ -167,6 +167,20 @@
   color: #a1a1aa;
 }
 
+#scaler-bulk-download-modal .sbd-pending .sbd-stamp,
+#scaler-bulk-download-modal .sbd-pending .sbd-title {
+  opacity: 0.5;
+}
+
+#scaler-bulk-download-modal .sbd-note.sbd-pending-tag {
+  color: #a1a1aa;
+}
+
+#scaler-bulk-download-modal .sbd-pending-note {
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
 #scaler-bulk-download-modal .sbd-types {
   display: flex;
   gap: 18px;
