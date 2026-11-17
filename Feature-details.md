@@ -32,7 +32,7 @@ This document provides a technical overview of how each major feature is impleme
 ## 📅 Google Calendar Sync
 
 **Description:** Automatically synchronizes scheduled classes to Google Calendar.
-**Implementation:** Utilizes an alarm (`chrome.alarms`) running every 24 hours. It fetches the mentee's upcoming events from the `https://www.scaler.com/academy/mentee/events/` endpoint. Using `chrome.identity.getAuthToken` (or a fallback OAuth web flow), it obtains a Google calendar access token and POSTs the filtered `lesson` events to the user's primary calendar using the Google Calendar API V3.
+**Implementation:** Utilizes an alarm (`chrome.alarms`) running every 24 hours. It fetches the mentee's upcoming events from the `https://www.scaler.com/academy/mentee/events/` endpoint. Using `chrome.identity.getAuthToken` (or a fallback OAuth web flow), it obtains a Google access token for the `calendar.app.created` scope only, and keeps the filtered `lesson` events in a secondary calendar the extension creates (**Scaler classes**), using the Google Calendar API v3. Each lesson has a fixed event id (`scalerpp<class id>`), so a re-sync updates a rescheduled class in place instead of adding it again. The narrow scope is what keeps Google from blocking sign-in: an unverified app that asks for a sensitive Calendar scope such as `calendar.events` gets "This app is blocked" (issue #29).
 
 ## 🛡️ Smart Companion Bypass
 

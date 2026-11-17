@@ -495,7 +495,10 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.disabled = false;
 
       if (response?.success) {
-        statusEl.textContent = "✓ Classes added to Calendar";
+        const changed = (response.added || 0) + (response.updated || 0);
+        statusEl.textContent = changed
+          ? `✓ ${changed} class${changed === 1 ? "" : "es"} synced to “Scaler classes”`
+          : "✓ “Scaler classes” calendar is up to date";
         statusEl.className = "sync-status success";
       } else {
         const reason = response?.error ?? "Unknown error";

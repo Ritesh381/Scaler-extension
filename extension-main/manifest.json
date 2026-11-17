@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Scaler++",
-  "version": "1.11.9",
+  "version": "1.11.10",
   "description": "Bypass companion-mode on campus WiFi, spotlight search, download lecture recordings & declutter Scaler dashboard",
   "permissions": [
     "storage",
@@ -21,7 +21,7 @@
   "oauth2": {
     "client_id": "240142215084-3r1o48jj60gpj45vnah4qasa8e02locm.apps.googleusercontent.com",
     "scopes": [
-      "https://www.googleapis.com/auth/calendar.events"
+      "https://www.googleapis.com/auth/calendar.app.created"
     ]
   },
   "background": {
