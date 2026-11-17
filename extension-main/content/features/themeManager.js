@@ -152,6 +152,9 @@ const SCALER_DARK_CANDIDATES = [
 const SCALER_DARK_MIN_W = 48;
 const SCALER_DARK_MIN_H = 28;
 
+// Upper bound on elements watched for growth at once (see watchForGrowth).
+const SCALER_GROWTH_WATCH_MAX = 300;
+
 // Mirrored into the PAGE's localStorage so the document_start preload
 // (themePreload.js) can apply the theme before first paint — eliminating the
 // light→dark flash (FOUC). The dark-paths list lets the preload skip pages
@@ -883,6 +886,9 @@ function collectDarkCandidates(scope, darkCandidates) {
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     if ((w || h) && (w < SCALER_DARK_MIN_W || h < SCALER_DARK_MIN_H)) {
+      // A dark drawer that mounts collapsed (width 0, then slides open) is
+      // not a sliver: look again once it has a real size.
+      if ((!w || !h) && hasDarkBackground(el)) watchForGrowth(el, "dark");
       return;
     }
     if (hasDarkBackground(el)) darkCandidates.push(el);
@@ -903,11 +909,12 @@ function flagDarkCandidates(darkCandidates) {
 }
 
 /**
- * Remove all runtime dark-region flags (used when theming is turned off).
+ * Remove the runtime dark-region flags inside `scope` (default: everywhere —
+ * used when theming is turned off).
  */
-function clearDarkRegions() {
+function clearDarkRegions(scope) {
   if (typeof document === "undefined") return;
-  document.querySelectorAll(`[${SCALER_DARK_ATTR}]`).forEach((el) => {
+  (scope || document).querySelectorAll(`[${SCALER_DARK_ATTR}]`).forEach((el) => {
     el.classList.remove(SCALER_NO_INVERT_CLASS);
     el.removeAttribute(SCALER_DARK_ATTR);
   });
@@ -960,6 +967,12 @@ let _currentThemeId = "off";
 // re-render; otherwise the observer only patches newly added nodes.
 let _renderedMode = "off";
 let _scopedVideos = [];
+
+// Elements whose size the theme is waiting on (watchForGrowth): element → why
+// ("collapsed" | "chip" | "dark" | "video"), and the one ResizeObserver behind
+// them. Dropped on every full render and on teardown.
+let _growthObserver = null;
+const _growthWatched = new Map();
 
 // Video-path elements whose background was recoloured inline:
 // element -> { original: {r,g,b,a}, value, priority } (the prior inline value).
@@ -1101,26 +1114,148 @@ function recolorPathBackground(el, original, theme) {
   el.setAttribute(SCALER_VIDEO_PATH_ATTR, "");
 }
 
+// ── Growth watch ─────────────────────────────────────────────────────────────
+// Every size gate below is read once, when an element is first seen. A panel
+// that mounts collapsed and then slides open, a shell that mounts empty and is
+// filled later, a video that is resized by CSS: none of those add a node, so
+// the childList observer never looks again and the first verdict sticks until
+// the theme is re-applied. Elements that failed a size gate are therefore
+// handed to one ResizeObserver and re-evaluated when they pass it.
+
 /**
- * Decide how an element OFF the video path is themed, given whether the
- * surface it sits on is dark:
- *  - media / spotlight / background-image  → native (what root mode's
- *    counters produce anyway)
- *  - dark (own bg, or transparent on dark) → native, and its children are
- *    searched for light islands (a white chat panel in the dark player)
- *  - visible wrapper with no area          → descend (portal roots,
- *    display: contents); filtering it would re-anchor its fixed children
- *  - small light chip on a dark surface    → native (part of that chrome)
- *  - anything else                         → a themed subtree
+ * Re-evaluate `el` once it outgrows the size gate named by `kind`:
+ *  - "collapsed" no area yet (scoped mode walked past it into its children)
+ *  - "chip"      a light box too small to theme on a dark surface
+ *  - "dark"      a dark box with no area yet (not flagged as a dark region)
+ *  - "video"     any resize: it may cross the lecture-size threshold
+ * Bounded by SCALER_GROWTH_WATCH_MAX; a no-op without ResizeObserver.
  */
-function classifyOffPath(el, onDark, hasLayout) {
-  if (isNativeInScopedMode(el) || el.hasAttribute(SCALER_THEMED_ATTR)) return;
-  const own = ownOpaqueBg(el);
-  const dark = own ? luminance(own) < SCALER_DARK_LUMINANCE : onDark;
-  if (dark) {
-    Array.from(el.children).forEach((c) => classifyOffPath(c, true, hasLayout));
+function watchForGrowth(el, kind) {
+  if (typeof ResizeObserver === "undefined") return;
+  if (_growthWatched.has(el)) {
+    _growthWatched.set(el, kind);
     return;
   }
+  if (_growthWatched.size >= SCALER_GROWTH_WATCH_MAX) return;
+  if (!_growthObserver) _growthObserver = new ResizeObserver(onWatchedResize);
+  _growthWatched.set(el, kind);
+  _growthObserver.observe(el, { box: "border-box" });
+}
+
+function unwatchGrowth(el) {
+  if (_growthWatched.delete(el) && _growthObserver) _growthObserver.unobserve(el);
+}
+
+/**
+ * Stop watching: everything inside `scope`, or (no scope) everything but the
+ * videos, whose watch outlives a re-render.
+ */
+function clearGrowthWatch(scope) {
+  _growthWatched.forEach((kind, el) => {
+    if (scope ? el !== scope && scope.contains(el) : kind !== "video") {
+      unwatchGrowth(el);
+    }
+  });
+}
+
+/** Drop watched elements the SPA has removed, so they can be collected. */
+function pruneGrowthWatch() {
+  _growthWatched.forEach((_, el) => {
+    if (!el.isConnected) unwatchGrowth(el);
+  });
+}
+
+function stopGrowthWatch() {
+  if (_growthObserver) {
+    _growthObserver.disconnect();
+    _growthObserver = null;
+  }
+  _growthWatched.clear();
+}
+
+/**
+ * Watch every <video> for resizes. Whether one counts as the lecture video is
+ * a size test (findExemptVideos), and a player can cross it with no DOM
+ * change at all: a stylesheet arriving, a layout toggle, a window resize.
+ */
+function watchVideoSizes() {
+  if (typeof document === "undefined") return;
+  const videos = document.getElementsByTagName("video");
+  for (let i = 0; i < videos.length; i++) watchForGrowth(videos[i], "video");
+}
+
+/** Has a watched element passed the gate that deferred it? Same measures as the gates. */
+function hasOutgrownGate(el, kind) {
+  if (kind === "dark") {
+    return el.offsetWidth >= SCALER_DARK_MIN_W && el.offsetHeight >= SCALER_DARK_MIN_H;
+  }
+  const { width, height } = el.getBoundingClientRect();
+  if (kind === "chip") return width >= SCALER_DARK_MIN_W && height >= SCALER_DARK_MIN_H;
+  return width > 0 && height > 0;
+}
+
+/**
+ * ResizeObserver callback. Runs after layout and before paint, so an element
+ * that just opened is themed in the same frame it becomes visible.
+ */
+function onWatchedResize(entries) {
+  if (contextGone()) {
+    stopThemeObserver();
+    return;
+  }
+  const grown = [];
+  let videoResized = false;
+  entries.forEach(({ target: el }) => {
+    const kind = _growthWatched.get(el);
+    if (!kind) return;
+    if (!el.isConnected) {
+      unwatchGrowth(el);
+    } else if (kind === "video") {
+      videoResized = true;
+    } else if (hasOutgrownGate(el, kind)) {
+      unwatchGrowth(el);
+      grown.push(el);
+    }
+  });
+  if (videoResized) scheduleFlush();
+  if (grown.length) patchTheme(outermostNodes(grown), true);
+}
+
+/**
+ * Theme `nodes` the way a full render would, without re-rendering the page:
+ * nodes the SPA just added, or (`regrown`) nodes that outgrew a size gate.
+ * Dark regions flagged INSIDE a regrown node were flagged while the node
+ * itself was passed over; they are dropped and rescanned so the node and a
+ * child are never both countered (twice countered = back to light).
+ */
+function patchTheme(nodes, regrown) {
+  if (!nodes.length) return;
+  if (_renderedMode === "root") {
+    if (regrown) nodes.forEach((node) => clearDarkRegions(node));
+    neutralizeDarkRegionsIn(nodes);
+  } else if (_renderedMode === "scoped") {
+    nodes.forEach((node) => extendScopedTheme(node, regrown));
+  }
+}
+
+/**
+ * How an element OFF the video path is themed, given whether the surface it
+ * sits on is dark:
+ *  - "leave"     media / spotlight / background-image (native, as root mode's
+ *                counters leave them), or already a themed subtree
+ *  - "dark"      own dark bg, or transparent on dark: native, and its children
+ *                are searched for light islands (a white chat panel in the
+ *                dark player)
+ *  - "collapsed" visible wrapper with no area: its children are searched
+ *                (portal roots, display: contents); filtering it would
+ *                re-anchor its fixed children
+ *  - "chip"      small light box on a dark surface: native, part of that chrome
+ *  - "theme"     anything else: a themed subtree
+ */
+function offPathVerdict(el, onDark, hasLayout) {
+  if (isNativeInScopedMode(el) || el.hasAttribute(SCALER_THEMED_ATTR)) return "leave";
+  const own = ownOpaqueBg(el);
+  if (own ? luminance(own) < SCALER_DARK_LUMINANCE : onDark) return "dark";
   if (hasLayout) {
     let rendered = true;
     try {
@@ -1132,18 +1267,48 @@ function classifyOffPath(el, onDark, hasLayout) {
       // A portal root is usually a full-width block of zero height (its
       // children are position: fixed), so either dimension being 0 counts.
       const { width: w, height: h } = el.getBoundingClientRect();
-      if (!w || !h) {
-        Array.from(el.children).forEach((c) =>
-          classifyOffPath(c, onDark, hasLayout),
-        );
-        return;
-      }
-      if (onDark && (w < SCALER_DARK_MIN_W || h < SCALER_DARK_MIN_H)) return;
+      if (!w || !h) return "collapsed";
+      if (onDark && (w < SCALER_DARK_MIN_W || h < SCALER_DARK_MIN_H)) return "chip";
     }
   }
+  return "theme";
+}
+
+/**
+ * Make `el` a themed subtree. Anything themed or flagged dark inside it was
+ * decided while `el` itself was passed over (collapsed, or not there yet);
+ * with `el` filtered those would be filtered or countered twice, so they are
+ * dropped and the dark regions rescanned against `el`.
+ */
+function markThemed(el) {
+  el.querySelectorAll(`[${SCALER_THEMED_ATTR}]`).forEach((inner) => {
+    inner.classList.remove(SCALER_THEMED_CLASS);
+    inner.removeAttribute(SCALER_THEMED_ATTR);
+  });
+  clearDarkRegions(el);
+  clearGrowthWatch(el);
+  unwatchGrowth(el);
   el.classList.add(SCALER_THEMED_CLASS);
   el.setAttribute(SCALER_THEMED_ATTR, "");
   neutralizeDarkRegions(el);
+}
+
+/**
+ * Apply offPathVerdict to `el` and, where the verdict says so, its subtree.
+ * Elements passed over for their size are watched and come back through
+ * extendScopedTheme when they grow.
+ */
+function classifyOffPath(el, onDark, hasLayout) {
+  const verdict = offPathVerdict(el, onDark, hasLayout);
+  if (verdict === "theme") {
+    markThemed(el);
+  } else if (verdict === "chip") {
+    watchForGrowth(el, "chip");
+  } else if (verdict === "dark" || verdict === "collapsed") {
+    if (verdict === "collapsed") watchForGrowth(el, "collapsed");
+    const childOnDark = verdict === "dark" ? true : onDark;
+    Array.from(el.children).forEach((c) => classifyOffPath(c, childOnDark, hasLayout));
+  }
 }
 
 /**
@@ -1193,16 +1358,43 @@ function sitsOnDark(el) {
 }
 
 /**
- * Incremental counterpart of scopeAroundVideos for a node the SPA just added.
- * Inside a themed subtree the usual dark-region scan applies; anywhere else
- * the node is classified against the surface it sits on.
+ * Incremental counterpart of scopeAroundVideos for a node the SPA just added,
+ * or (`regrown`) one that outgrew a size gate.
+ *
+ * Inside a themed subtree the usual dark-region scan applies. Anywhere else
+ * the node is judged the way a full render would reach it: top-down from the
+ * video path. An ancestor passed over earlier (collapsed, or an empty shell)
+ * may qualify as a themed subtree now that it has content, and then IT is
+ * themed, not the node: theming only the node would leave the ancestor's own
+ * background unthemed around it.
  */
-function extendScopedTheme(node) {
+function extendScopedTheme(node, regrown) {
   if (node.closest(`.${SCALER_THEMED_CLASS}`)) {
+    if (regrown) clearDarkRegions(node);
     neutralizeDarkRegions(node);
     return;
   }
-  classifyOffPath(node, sitsOnDark(node.parentElement), layoutAvailable());
+  const onPath = (el) => _scopedVideos.some((v) => el.contains(v));
+  const chain = [];
+  for (let el = node; el && el !== document.body && !onPath(el); el = el.parentElement) {
+    chain.unshift(el);
+  }
+  if (!chain.length) return;
+  const hasLayout = layoutAvailable();
+  let onDark = sitsOnDark(chain[0].parentElement);
+  for (const el of chain) {
+    if (el === node) {
+      classifyOffPath(el, onDark, hasLayout);
+      return;
+    }
+    const verdict = offPathVerdict(el, onDark, hasLayout);
+    if (verdict === "theme") {
+      markThemed(el);
+      return;
+    }
+    if (verdict === "dark") onDark = true;
+    else if (verdict !== "collapsed") return; // a full render stops here too
+  }
 }
 
 /**
@@ -1275,6 +1467,7 @@ function reconcileThemeClasses() {
 function renderThemeMode(mode, videos) {
   const wasScoped = _renderedMode === "scoped";
   clearScopedTheme();
+  clearGrowthWatch();
   if (mode === "root") {
     // Scoped renders flag dark regions per themed subtree; rescan from scratch
     // so none of those ends up nested inside a root-mode region (that would
@@ -1365,13 +1558,13 @@ function flushPendingNodes() {
     mode === "scoped" &&
     (!sameVideos(videos, _scopedVideos) ||
       added.some((n) => videos.some((v) => n.contains(v))));
+  pruneGrowthWatch();
   if (mode !== _renderedMode || pathChanged) {
     renderThemeMode(mode, videos);
-  } else if (mode === "root") {
-    if (added.length) neutralizeDarkRegionsIn(added);
-  } else if (mode === "scoped") {
-    added.forEach((node) => extendScopedTheme(node));
+  } else {
+    patchTheme(added, false);
   }
+  watchVideoSizes();
 }
 
 /**
@@ -1395,6 +1588,7 @@ function startThemeObserver() {
   // A player's <video> can grow to lecture size when its stream's metadata
   // arrives, with no node added. Media events don't bubble, hence capture.
   document.addEventListener("loadedmetadata", scheduleFlush, true);
+  watchVideoSizes();
 }
 
 function stopThemeObserver() {
@@ -1405,6 +1599,7 @@ function stopThemeObserver() {
   if (typeof document !== "undefined") {
     document.removeEventListener("loadedmetadata", scheduleFlush, true);
   }
+  stopGrowthWatch();
   if (_rafId != null && typeof cancelAnimationFrame === "function") {
     cancelAnimationFrame(_rafId);
   }

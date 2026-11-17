@@ -564,6 +564,169 @@ test("leaving scoped mode for root mode clears scoped flags first", () => {
   );
 });
 
+// ── Elements that are sized after they are first seen ────────────────────────
+// Size gates are read when an element is first seen. A panel that mounts
+// collapsed and slides open, a shell filled after it mounts, a video resized
+// by CSS: none add a node, so each needs a second look when its size changes.
+
+// Give jsdom a layout: an element measures its data-box="WxH" (default 200x100).
+function fakeLayout(window) {
+  const box = (el) => {
+    const m = /^(\d+)x(\d+)$/.exec(el.getAttribute("data-box") || "");
+    return m ? [Number(m[1]), Number(m[2])] : [200, 100];
+  };
+  Object.defineProperty(window.document.documentElement, "clientWidth", { configurable: true, value: 1280 });
+  window.Element.prototype.getBoundingClientRect = function () {
+    const [width, height] = box(this);
+    return { width, height, top: 0, left: 0, right: width, bottom: height };
+  };
+  Object.defineProperty(window.HTMLElement.prototype, "offsetWidth", { configurable: true, get() { return box(this)[0]; } });
+  Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", { configurable: true, get() { return box(this)[1]; } });
+}
+
+// A ResizeObserver the test fires by hand.
+function fakeResizeObserver(window) {
+  const observers = [];
+  window.ResizeObserver = class {
+    constructor(cb) {
+      this.cb = cb;
+      this.targets = new Set();
+      observers.push(this);
+    }
+    observe(el) { this.targets.add(el); }
+    unobserve(el) { this.targets.delete(el); }
+    disconnect() { this.targets.clear(); }
+  };
+  return {
+    watched: () => observers.flatMap((o) => Array.from(o.targets)),
+    resize(...els) {
+      observers.forEach((o) => {
+        const hit = els.filter((el) => o.targets.has(el));
+        if (hit.length) o.cb(hit.map((target) => ({ target })));
+      });
+    },
+  };
+}
+
+// Long enough for the mutation observer's requestAnimationFrame flush.
+const flushed = () => new Promise((resolve) => setTimeout(resolve, 60));
+
+const LATE_HTML = `<!DOCTYPE html><html><body style="background-color: rgb(255, 255, 255)">
+  <div id="overlay" style="background-color: rgb(18, 18, 18)">
+    <div id="player" style="background-color: rgb(0, 0, 0)"><video id="v" data-box="640x360"></video></div>
+    <div id="slot"></div>
+  </div>
+</body></html>`;
+
+const PANEL_HTML = `<div id="panel" data-box="0x600" style="background-color: rgb(255, 255, 255)">
+  <div id="head" style="background-color: rgb(255, 255, 255)">Chat</div>
+  <div id="notice" style="background-color: rgb(30, 42, 74)">Notice Board</div>
+  <div id="msgs" style="background-color: rgb(244, 244, 244)"></div>
+</div>`;
+
+function loadLate(html = LATE_HTML) {
+  const { window } = loadFeature(THEME_FILE, { html });
+  fakeLayout(window);
+  const ro = fakeResizeObserver(window);
+  window.applyTheme("dark");
+  return { window, ro, $: (id) => window.document.getElementById(id) };
+}
+
+test("a panel that mounts collapsed is themed as a whole once it opens", async () => {
+  const { window, ro, $ } = loadLate();
+  $("slot").innerHTML = PANEL_HTML;
+  await flushed();
+
+  // Width 0 at mount: the panel is passed over and only its pieces are themed,
+  // which leaves the panel's own white background unthemed around them.
+  assert.ok(!themed(window, "panel"), "collapsed panel is passed over");
+  assert.ok(themed(window, "head") && themed(window, "msgs"), "its sized pieces are themed for now");
+  assert.ok(ro.watched().includes($("panel")), "and the panel is watched");
+
+  $("panel").setAttribute("data-box", "320x600"); // the slide-in finished
+  ro.resize($("panel"));
+
+  assert.ok(themed(window, "panel"), "panel themed once it has a size");
+  assert.ok(!themed(window, "head") && !themed(window, "msgs"), "pieces no longer carry a second filter");
+  assert.ok($("notice").classList.contains("scaler-no-invert"), "dark button inside keeps its counter");
+  assert.ok(!ro.watched().includes($("panel")), "panel no longer watched");
+});
+
+test("a panel still mid-slide on a dark surface is not written off as a chip", async () => {
+  const { window, ro, $ } = loadLate();
+  $("slot").innerHTML = PANEL_HTML;
+  await flushed();
+
+  $("panel").setAttribute("data-box", "6x600"); // first frame of the slide
+  ro.resize($("panel"));
+  assert.ok(!themed(window, "panel"), "a 6px sliver is not themed");
+  assert.ok(ro.watched().includes($("panel")), "but it is still watched");
+
+  $("panel").setAttribute("data-box", "320x600");
+  ro.resize($("panel"));
+  assert.ok(themed(window, "panel"), "themed when it reaches full size");
+});
+
+test("content added to a shell that mounted empty themes the shell, not just the content", async () => {
+  const { window, $ } = loadLate();
+  $("slot").innerHTML = `<div id="shell2" data-box="300x0" style="background-color: rgb(255, 255, 255)"></div>`;
+  await flushed();
+  assert.ok(!themed(window, "shell2"), "an empty, zero-height shell is passed over");
+
+  $("shell2").setAttribute("data-box", "300x200");
+  $("shell2").innerHTML = `<div id="row1">Chat</div><div id="row2">Hello</div>`;
+  await flushed();
+
+  assert.ok(themed(window, "shell2"), "the shell is themed");
+  assert.ok(!themed(window, "row1") && !themed(window, "row2"), "its rows are themed through it");
+});
+
+test("root mode: a dark drawer that mounts collapsed is protected once it opens", async () => {
+  const { window, ro, $ } = loadLate(`<!DOCTYPE html><html><body style="background-color: rgb(255, 255, 255)">
+    <div id="slot"></div></body></html>`);
+  assert.ok(window.document.documentElement.classList.contains(ROOT_CLASS), "root mode");
+
+  $("slot").innerHTML = `<div id="drawer" data-box="0x300" style="background-color: rgb(30, 30, 30)">
+    <div id="dhead" data-box="320x60" style="background-color: rgb(17, 17, 17)">Menu</div></div>`;
+  await flushed();
+  const flagged = (id) => $(id).classList.contains("scaler-no-invert");
+  assert.ok(!flagged("drawer"), "width 0: not a dark region yet");
+  assert.ok(flagged("dhead"), "its sized dark header is");
+
+  $("drawer").setAttribute("data-box", "320x300");
+  ro.resize($("drawer"));
+  assert.ok(flagged("drawer"), "drawer kept dark once open");
+  assert.ok(!flagged("dhead"), "header not countered a second time (that would turn it light)");
+});
+
+test("a video resized with no DOM change re-decides the render mode", async () => {
+  const { window, ro, $ } = loadLate(LATE_HTML.replace("640x360", "200x112"));
+  const root = window.document.documentElement;
+  assert.ok(root.classList.contains(ROOT_CLASS), "small video: root filter");
+
+  $("v").setAttribute("data-box", "640x360"); // the player grew by CSS alone
+  ro.resize($("v"));
+  await flushed();
+  assert.ok(root.classList.contains(SCOPED_CLASS), "lecture-sized now: scoped mode");
+  assert.ok(!root.classList.contains(ROOT_CLASS), "root filter off the video");
+});
+
+test("watched elements are released when removed and when the theme is turned off", async () => {
+  const { window, ro, $ } = loadLate();
+  $("slot").innerHTML = PANEL_HTML;
+  await flushed();
+  const panel = $("panel");
+  assert.ok(ro.watched().includes(panel));
+
+  panel.remove();
+  $("slot").appendChild(window.document.createElement("span"));
+  await flushed();
+  assert.ok(!ro.watched().includes(panel), "a removed element is no longer held");
+
+  window.applyTheme("off");
+  assert.equal(ro.watched().length, 0, "nothing watched with the theme off");
+});
+
 test("applyFilterToRgb matches what Chromium renders", () => {
   // Expected values measured from Chromium screenshots of the same filters.
   const { window } = loadFeature(THEME_FILE);

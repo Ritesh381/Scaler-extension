@@ -159,9 +159,10 @@ In scoped mode `scopeAroundVideos(videos)` collects every ancestor of every exem
     its children are searched for *light islands* — this is how the white chat or playlist
     panel inside the dark player overlay gets themed;
   - a visible wrapper with zero width or height (a portal root whose children are
-    `position: fixed`) is descended into rather than filtered;
+    `position: fixed`) is descended into rather than filtered, and watched in case it grows
+    (see [Sized after it is first seen](#sized-after-it-is-first-seen));
   - a light chip smaller than 48 × 28 px on a dark surface is left native (it is part of that
-    chrome's design);
+    chrome's design), and watched likewise;
   - anything else is flagged `.scaler-themed` + `data-scaler-themed` and gets the theme
     filter. `neutralizeDarkRegions()` then runs inside it, so dark buttons in a themed panel
     keep their counter exactly as in root mode.
@@ -178,7 +179,9 @@ the Midnight accent (a pre-image) is gated to root mode only.
   when the mode or the set of exempt videos changes, or when an added node contains an exempt
   video (a re-parented player). Otherwise added nodes are handled incrementally
   (`extendScopedTheme`): inside a themed subtree they get the dark-region scan; elsewhere
-  they are classified against the surface they sit on (`sitsOnDark`).
+  they are judged the way a full render would reach them, top-down from the video path
+  (`offPathVerdict` for each ancestor, starting from `sitsOnDark`). If an ancestor that was
+  passed over earlier now qualifies as a themed subtree, the ancestor is themed, not the node.
 - A capture-phase `loadedmetadata` listener on `document` schedules a flush, because a
   player's `<video>` can reach lecture size when its stream loads, with no node added. It is
   removed in `stopThemeObserver()`.
@@ -189,8 +192,54 @@ the Midnight accent (a pre-image) is gated to root mode only.
   backgrounds; switching to root mode also clears dark-region flags first so none ends up
   nested inside a root-mode region.
 
+### Sized after it is first seen
+
+Every size gate (zero-size wrapper, 48 × 28 chip, dark-region minimum, lecture-sized video) is
+read once, when the element is first seen. Three things change a size without adding a node,
+so the childList observer never looked again and the first verdict stuck until the theme was
+re-applied:
+
+- **A panel that mounts collapsed and slides open** (the lecture chat). At width 0 it was
+  passed over and only its sized children were themed, leaving the panel's own white
+  background unthemed around them.
+- **A shell that mounts empty and is filled later.** Each child was themed on its own; the
+  shell's background was not.
+- **A video resized by CSS** (a stylesheet arriving, a layout toggle, a window resize) crossing
+  the 320 × 180 threshold in either direction.
+
+Root mode had the same hole: a dark drawer that mounts at width 0 failed the dark-region size
+gate and was inverted to white when it opened.
+
+`watchForGrowth(el, kind)` hands such elements to **one `ResizeObserver`** (`_growthObserver`),
+with the reason in `_growthWatched`:
+
+| kind | watched when | re-evaluated when |
+|---|---|---|
+| `collapsed` | scoped mode walked past a zero-size light element | both dimensions are non-zero |
+| `chip` | a light box on a dark surface was under 48 × 28 | it reaches 48 × 28 |
+| `dark` | a dark candidate had one zero dimension | it reaches 48 × 28 |
+| `video` | every `<video>`, while a theme is on | any resize (schedules a flush) |
+
+`onWatchedResize()` runs after layout and before paint, so the element is themed in the frame
+it becomes visible. It calls `patchTheme(nodes, true)`, the same routine the mutation flush
+uses for added nodes. Two rules keep a late verdict from stacking on earlier ones:
+
+- `markThemed(el)` drops every themed flag and dark-region flag **inside** `el` before
+  flagging it, then rescans dark regions against `el`. Nested filters would invert twice.
+- A regrown dark region has the flags inside it cleared before the rescan, so the region and
+  a dark child are never both countered.
+
+Bounds and teardown: at most `SCALER_GROWTH_WATCH_MAX` (300) elements are watched;
+`markThemed` releases everything inside the subtree it themes; `pruneGrowthWatch()` releases
+elements the SPA removed on every flush; a full render (`renderThemeMode`) releases everything
+but the videos; `stopThemeObserver()` disconnects the observer and empties the map. Without
+`ResizeObserver` the watch is a no-op and behaviour is as before.
+
 ### Limits
 
+- A background that changes **by class or stylesheet alone**, with no node added and no size
+  change, is not re-evaluated (a panel that turns from dark to light in place). Re-applying
+  the theme or navigating picks it up.
 - A `position: fixed` element *inside* a themed panel is positioned relative to that panel,
   and `z-index` inside it can't escape it — a filter establishes a containing block and a
   stacking context. Zero-size portal roots are handled; a fixed popup inside a sized panel is
@@ -237,8 +286,11 @@ keep inverting a natively-dark page.
   writes never force layout for the next one's reads. `recordPageDarkness()` skips its
   `localStorage` read and write when the path's verdict hasn't changed since the last flush. It
   calls `contextGone()` each flush and tears the observer down if the extension was reloaded.
-- `stopThemeObserver()` disconnects, cancels the pending rAF and clears the node set; it is also
-  wired to `pagehide` with `{ once: true }`.
+- Elements that failed a size gate are re-evaluated when they grow, through one
+  `ResizeObserver` (see [Sized after it is first seen](#sized-after-it-is-first-seen)). This
+  applies to root mode's dark regions too.
+- `stopThemeObserver()` disconnects both observers, cancels the pending rAF and clears the node
+  set and the growth watch; it is also wired to `pagehide` with `{ once: true }`.
 
 ## Entry points
 
