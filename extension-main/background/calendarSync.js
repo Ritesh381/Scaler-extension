@@ -436,7 +436,6 @@ async function _ensureCalendar(auth, isInteractive) {
   }
   const { id } = await res.json();
   await _rememberCalendarId(id, known);
-  console.log(`[Scaler++ Calendar] Created the "${CALENDAR_NAME}" calendar.`);
   return id;
 }
 
@@ -585,16 +584,16 @@ async function performSync(isInteractive = false) {
         const current = await existingRes.json();
         if (current.status === "cancelled") {
           // The user deleted it from the calendar: respect that.
-          console.log(`[Scaler++ Calendar]   ⏭ Deleted by you, left alone: "${lesson.title}"`);
           skippedCount++;
           continue;
         }
         if (_eventMatches(current, event)) {
-          console.log(`[Scaler++ Calendar]   ⏭ Up to date: "${lesson.title}"`);
+          console.log(`[Scaler++ Calendar]   ⏭ Already exists: "${lesson.title}"`);
           skippedCount++;
           continue;
         }
-        const { id: _id, ...changes } = event;
+        const changes = { ...event };
+        delete changes.id; // it's in the URL
         writeRes = await _calendarFetch(
           `${eventsUrl}/${event.id}`,
           {
@@ -606,7 +605,6 @@ async function performSync(isInteractive = false) {
           isInteractive,
         );
         if (writeRes.ok) {
-          console.log(`[Scaler++ Calendar]   ✓ Updated: "${lesson.title}"`);
           updatedCount++;
           continue;
         }
