@@ -356,3 +356,105 @@ test("isLabClass matches the word lab, not words containing it", () => {
   assert.equal(window.isLabClass("Collaboration & Labelling"), false);
   assert.equal(window.isLabClass("Introduction to DevOps"), false);
 });
+
+// ── Classes that haven't finished ────────────────────────────────────────────
+// A class list also holds the class running now and the ones still to come.
+// None has a recording, so the picker must not offer them.
+
+const AT = new Date(2026, 7, 13, 10, 0); // 13 Aug 2026, 10:00 — 25 min into row 102
+const iso = (h, m = 0) => new Date(2026, 7, 13, h, m).toISOString();
+const FEED = {
+  pastEvents: [
+    { sbat_id: 101, title: "Introduction", date: "2026-08-11T10:15:00.000Z", end_time: "2026-08-11T12:45:00.000Z" },
+    { sbat_id: 102, title: "Linux Fundamentals", date: iso(9, 35), end_time: iso(12, 5) },
+  ],
+  futureEvents: [{ sbat_id: 103, title: "DevOps Lab 1", date: iso(11, 30), end_time: iso(13, 30) }],
+};
+
+test("classes still running or still to come are marked from the events feed", async () => {
+  let asked = "";
+  const fetch = makeFetch((url) => {
+    asked = url;
+    return { json: FEED };
+  });
+  const { window } = load(ROWS, { fetch });
+  const lectures = window.findLectureRows(window.document);
+  await window.markUnfinishedClasses(lectures, AT);
+
+  assert.deepEqual(plain(lectures.map((l) => [l.classId, l.pending || "", !!l.pendingSure])), [
+    ["101", "", false],
+    ["102", "live", true],
+    ["103", "upcoming", true],
+  ]);
+  assert.match(asked, /\/academy\/mentee\/events\/\?start_date=2026-08-12&end_date=2027-08-1\d$/, "from yesterday, a year ahead");
+});
+
+test("a class the feed shows as ended is finished, even minutes after its start time", async () => {
+  const ended = { ...FEED, pastEvents: [FEED.pastEvents[0], { ...FEED.pastEvents[1], end_time: iso(9, 55) }] };
+  const { window } = load(ROWS, { fetch: makeFetch(() => ({ json: ended })) });
+  const lectures = window.findLectureRows(window.document);
+  await window.markUnfinishedClasses(lectures, AT);
+  assert.equal(lectures[1].pending || "", "", "ended early: its recording can be asked for");
+});
+
+test("without the events feed, a class's own date decides, and the verdict is not binding", async () => {
+  const { window } = load(ROWS, { fetch: makeFetch(() => ({ status: 500 })) });
+  const lectures = window.findLectureRows(window.document);
+  await window.markUnfinishedClasses(lectures, AT);
+  assert.deepEqual(plain(lectures.map((l) => [l.pending || "", !!l.pendingSure])), [
+    ["", false],
+    ["live", false], // started 25 minutes ago; no end time to go by
+    ["upcoming", false],
+  ]);
+});
+
+test("the picker leaves unfinished classes out of the selection and the From/To range", async () => {
+  const more = [...ROWS, row({ id: 104, when: "14 AUG | 09:35 AM", title: "Shell Scripting" })];
+  const feed = { ...FEED, futureEvents: [...FEED.futureEvents, { sbat_id: 104, date: "2026-08-14T04:05:00.000Z" }] };
+  const { window, sent } = load(more, { fetch: makeFetch(() => ({ json: feed })) });
+  const doc = window.document;
+  const lectures = window.findLectureRows(doc);
+  await window.markUnfinishedClasses(lectures, AT);
+  window.openBulkModal(lectures, "");
+  const modal = doc.getElementById("scaler-bulk-download-modal");
+  const boxes = Array.from(modal.querySelectorAll(".sbd-list input"));
+
+  assert.deepEqual(boxes.map((b) => b.checked), [true, false, false, false], "only the finished class is ticked");
+  assert.deepEqual(boxes.map((b) => b.disabled), [false, true, true, true], "the rest can't be ticked");
+  assert.deepEqual(
+    Array.from(modal.querySelectorAll(".sbd-pending-tag"), (n) => n.textContent),
+    ["in progress", "not held yet", "not held yet"],
+  );
+  const to = modal.querySelector(".sbd-to");
+  assert.deepEqual(Array.from(to.options, (o) => o.value), ["0"], "To offers finished classes only");
+  assert.equal(to.value, "0", "and ends at the latest finished class");
+  assert.match(modal.querySelector(".sbd-pending-note").textContent, /3 classes haven't finished/);
+
+  modal.querySelector(".sbd-all").click();
+  assert.deepEqual(boxes.map((b) => b.checked), [true, false, false, false], "All skips them");
+  modal.querySelector(".sbd-start").click();
+  const msg = sent.find((m) => m.type === "START_BULK_DOWNLOAD");
+  assert.deepEqual(plain(msg.job.lectures.map((l) => l.classId)), ["101"]);
+});
+
+test("a date-only verdict can be overridden by hand", async () => {
+  const { window } = load(ROWS, { fetch: makeFetch(() => ({ status: 500 })) });
+  const doc = window.document;
+  const lectures = window.findLectureRows(doc);
+  await window.markUnfinishedClasses(lectures, AT);
+  window.openBulkModal(lectures, "");
+  const boxes = Array.from(doc.querySelectorAll("#scaler-bulk-download-modal .sbd-list input"));
+  assert.deepEqual(boxes.map((b) => [b.checked, b.disabled]), [[true, false], [false, false], [false, false]]);
+  boxes[1].click();
+  assert.equal(boxes[1].checked, true, "the feed couldn't confirm it, so the user may");
+});
+
+test("the bar's button marks unfinished classes before it opens the picker", async () => {
+  const { window } = load(ROWS, { fetch: makeFetch(() => ({ json: { pastEvents: [], futureEvents: [{ sbat_id: 103, date: "2999-01-01T00:00:00.000Z" }] } })) });
+  const doc = window.document;
+  window.initBulkDownload();
+  doc.querySelector("#scaler-bulk-download-bar button").click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const boxes = Array.from(doc.querySelectorAll("#scaler-bulk-download-modal .sbd-list input"));
+  assert.deepEqual(boxes.map((b) => b.disabled), [false, false, true]);
+});

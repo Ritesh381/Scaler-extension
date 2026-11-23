@@ -26,7 +26,9 @@ in one go, into one folder.
    transcribed yet"** (off by default — uses the user's API key and credits). **Lab sessions**
    (titles with the word "Lab", e.g. "DevOps Lab 1") are tagged *lab* and start unticked; ranges and
    All skip them unless **Include labs** is ticked, and a lab can always be ticked by hand
-   (`isLabClass`).
+   (`isLabClass`). **Classes that haven't finished** (running now, or still to come) have no
+   recording: they are listed greyed out, tagged *in progress* or *not held yet*, can't be
+   ticked, and are left out of From/To, so **To** ends at the latest finished class.
 4. **Start** opens the bulk download page. Before starting, it offers:
    - **Lectures at a time** (1–6, default 2, remembered in `chrome.storage.local`
      `scaler_bulk_settings`);
@@ -88,6 +90,30 @@ Rows are found by visible text, not Scaler's generated class names:
 
 The bar is injected once above the list. A debounced `MutationObserver` waits for the list to
 render after navigation and **disconnects as soon as the bar is in**, or after 30 s.
+
+### Which classes have a recording (`markUnfinishedClasses`)
+
+A class list also holds the class running right now and every class still to come. A row only
+says `13 AUG | 09:35 AM`: no year and no end time, so it can't tell "started 25 minutes ago"
+from "finished". When the bar's button is clicked, one request to the events feed
+(`fetchBulkEvents`, from yesterday to 366 days ahead, 8 s timeout) settles it:
+
+| Feed says | Lecture gets | Picker |
+|---|---|---|
+| start is in the future | `pending: "upcoming"`, `pendingSure: true` | greyed, *not held yet*, can't be ticked |
+| started, `end_time` is in the future | `pending: "live"`, `pendingSure: true` | greyed, *in progress*, can't be ticked |
+| ended, or not in the feed | nothing | offered as before |
+
+An event with no `end_time` is taken to run 4 hours (`BULK_ASSUMED_CLASS_MS`). Yesterday is
+included for a class that started before midnight and is still running.
+
+**If the feed can't be read**, the row's own date decides (`bulkStampToDate`; within 4 hours
+of its start counts as running) and `pendingSure` stays false: those rows start unticked and
+are skipped by From/To and All, but **can be ticked by hand**. A row's date carries no year,
+so this verdict can be wrong for a class from a year ago, and must not lock the user out.
+
+`fetchBulkEvents` is also what `resolveMissingClassIds` uses now, so both read the feed the
+same way, never throw, and time out.
 
 ### The bulk page (`bulkDownloadPage.js`)
 
@@ -155,7 +181,8 @@ render after navigation and **disconnects as soon as the bar is in**, or after 3
 - `tests/bulkDownload.test.js` — row parsing (split stamps, contests, icon text, single-stamp
   pages), subject name, events-feed fallback, year inference, bar injection (incl. a list that
   renders late), the picker (range, shift-click, Start payload, empty selection, Escape cleanup),
-  teardown.
+  unfinished classes (feed verdicts, a class that ended early, the date fallback, the picker
+  leaving them out, the bar's button), teardown.
 - `tests/bulkJob.test.js` — job parsing, file names, `runWithConcurrency`.
 - `tests/hlsDownloadEngine.test.js` — rendition choice, ordered writes, failed chunks, proxy and
   its fallback, abort, in-memory download.
@@ -164,6 +191,10 @@ render after navigation and **disconnects as soon as the bar is in**, or after 3
 
 ## Known limitations
 
+- "Finished" comes from the feed's scheduled `end_time`. A class that overruns is offered
+  while still live, and one that just ended may not have its recording processed yet; either
+  way that lecture's row on the bulk page fails with its reason and can be retried.
+- A class more than 366 days ahead, or one the feed leaves out, is offered as before.
 - The class-list markup was written from a screenshot; if Scaler changes the stamp format or
   drops the `Lecture` cell, no rows are found and the bar doesn't appear.
 - Every video/audio lecture needs a capture tab (inactive, muted, ~5–15 s), two at a time.
