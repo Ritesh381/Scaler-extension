@@ -18,7 +18,7 @@ message routing, SPA handling. Every feature doc assumes it.
 | [subject-sort.md](subject-sort.md) — Core vs Other curriculum split | `subject-sort` | on |
 | [contest-leaderboard.md](contest-leaderboard.md) — unlock the live scoreboard link | `contest-leaderboard` | on |
 | [spotlight-search.md](spotlight-search.md) — `Alt + /` search overlay | `spotlight-search` | on |
-| [theme-manager.md](theme-manager.md) — dark mode + 6 themes, anti-FOUC preload | `theme` | `dark` |
+| [theme-manager.md](theme-manager.md) — dark mode + 6 themes, anti-FOUC preload ([reviewer guide: late-sized panels & attribute markers](theme-markers-reviewer-guide.md)) | `theme` | `dark` |
 | [video-downloader.md](video-downloader.md) — recording download (video/audio) | `video-downloader` | on |
 | [lecture-transcript.md](lecture-transcript.md) — transcription + shared cache | (transcript option of the downloader) | — |
 | [bulk-download.md](bulk-download.md) — transcripts/video/audio for a range of lectures ([reviewer guide](bulk-download-reviewer-guide.md)) | `bulk-download` | on |
