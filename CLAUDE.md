@@ -105,6 +105,11 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow and
 - No external CDNs, no new runtime dependencies, no minified blobs you can't explain.
 - Add a permission or host permission only if genuinely required — every new one lengthens Google's
   review and gets questioned.
+- The same goes for **Google OAuth scopes**: ask for the narrowest one that works. The OAuth app
+  is unverified, and an unverified app asking for a *sensitive* scope (`calendar.events`,
+  `calendar`, …) is shown "This app is blocked" instead of a consent screen (issue #29). Calendar
+  sync uses `calendar.app.created` for that reason — see
+  [docs/calendar-sync.md](docs/calendar-sync.md).
 
 ## Memory leaks & performance — non-negotiable
 

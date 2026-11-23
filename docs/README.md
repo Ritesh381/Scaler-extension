@@ -9,7 +9,7 @@ message routing, SPA handling. Every feature doc assumes it.
 |---|---|---|
 | [dom-cleaner.md](dom-cleaner.md) — decluttering, modals, sidebar, mess-fee card, header icons | many (`referral-*`, `mess-fee`, `auto-close-modals`, `core-curriculum`, …) | on |
 | [companion-bypass.md](companion-bypass.md) — join-session IP headers | `companion-bypass` | on |
-| [calendar-sync.md](calendar-sync.md) — classes → Google Calendar | `calendar-sync` | on |
+| [calendar-sync.md](calendar-sync.md) — classes → Google Calendar ([reviewer guide: app-created calendar scope](calendar-sync-reviewer-guide.md)) | `calendar-sync` | on |
 | [leetcode-link.md](leetcode-link.md) — LeetCode badge with confidence matching | `leetcode-link` | on |
 | [problem-search.md](problem-search.md) — filter bar on the problems page | `problem-search` | on |
 | [problem-picker.md](problem-picker.md) — Pick Random unsolved problem | `problem-picker` | on |
